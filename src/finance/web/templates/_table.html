@@ -1,0 +1,54 @@
+{#
+  Reusable table macro.
+
+  Columns: list of dicts with keys:
+    - key   (required)  — row dict key to pull
+    - label (required)  — header text
+    - num   (optional)  — true → right-align + tabular-nums
+    - fmt   (optional)  — 'money' (2dp), 'int', 'pct' (1dp + %), 'html' (raw),
+                          'date' (ISO passthrough). Default = as-is str.
+    - muted (optional)  — true → render value in muted color
+
+  Rows: list of dicts. Missing/None/NaN values render as —.
+#}
+{% macro table(columns, rows) %}
+<div class="overflow-x-auto border border-neutral-200 rounded bg-white">
+  <table class="w-full text-sm border-collapse">
+    <thead class="text-left bg-neutral-100 text-neutral-600">
+      <tr>
+        {% for col in columns %}
+          <th class="py-2 px-3 font-medium {% if col.num %}text-right{% endif %}">{{ col.label }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr class="border-t border-neutral-200 hover:bg-neutral-50">
+          {% for col in columns %}
+            {% set val = row.get(col.key) %}
+            <td class="py-2 px-3 {% if col.num %}num{% endif %} {% if col.muted %}muted{% endif %}">
+              {% if val is none or val == '' %}
+                <span class="muted">—</span>
+              {% elif col.fmt == 'money' %}
+                {{ '%.2f' | format(val) }}
+              {% elif col.fmt == 'int' %}
+                {{ val | int }}
+              {% elif col.fmt == 'pct' %}
+                {{ '%.1f' | format(val) }}%
+              {% elif col.fmt == 'html' %}
+                {{ val | safe }}
+              {% else %}
+                {{ val }}
+              {% endif %}
+            </td>
+          {% endfor %}
+        </tr>
+      {% else %}
+        <tr>
+          <td class="py-4 px-3 muted" colspan="{{ columns|length }}">(no rows)</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}

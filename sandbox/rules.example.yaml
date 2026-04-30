@@ -1,0 +1,29 @@
+# Copy to ~/.config/finance/rules.yaml and edit to taste.
+# First matching rule wins. Patterns are Python regex (case-insensitive via (?i)).
+
+- match: "(?i)carrefour|leclerc|auchan|monoprix|franprix|lidl|intermarche|picard"
+  category: "Groceries"
+
+- match: "(?i)edf|engie|total energies|veolia|suez"
+  category: "Utilities"
+
+- match: "(?i)orange|free|bouygues|sfr"
+  category: "Telecom"
+
+- match: "(?i)sncf|ratp|uber|lyft|bolt|navigo|velib"
+  category: "Transport"
+
+- match: "(?i)amazon|fnac|darty|boulanger"
+  category: "Shopping"
+
+- match: "(?i)netflix|spotify|youtube|disney|hbo|canal\\+|apple\\.com/bill"
+  category: "Subscriptions"
+
+- match: "(?i)deliveroo|uber\\s*eats|frichti|mcdo|burger king|starbucks|restaurant|brasserie"
+  category: "Dining"
+
+- match: "(?i)doctolib|pharmacie|medecin|dentiste|hopital"
+  category: "Health"
+
+- match: "(?i)salaire|salary|payroll|paie"
+  category: "Income"

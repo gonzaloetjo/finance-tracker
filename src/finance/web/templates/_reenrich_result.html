@@ -1,0 +1,17 @@
+{# HTMX fragment returned by /rules/reenrich #}
+<div class="border border-emerald-200 bg-emerald-50 rounded px-4 py-3">
+  <div class="flex items-baseline justify-between">
+    <div class="font-semibold text-emerald-900">✓ Re-enrich complete</div>
+    <button type="button" onclick="window.location.reload()"
+            class="text-xs bg-emerald-900 text-white px-3 py-1 rounded hover:bg-emerald-700">
+      Refresh page
+    </button>
+  </div>
+  <div class="grid grid-cols-4 gap-2 mt-2 text-sm">
+    <div><span class="muted">processed:</span> {{ total }}</div>
+    <div><span class="muted">classified:</span> {{ classified }}</div>
+    <div><span class="muted">income tagged:</span> {{ income_tagged }}</div>
+    <div><span class="muted">transfer tagged:</span> {{ transfer_tagged }}</div>
+  </div>
+  <p class="text-xs muted mt-2">Navigate to /merchants, /subscriptions, /overview etc. to see the updated classifications.</p>
+</div>

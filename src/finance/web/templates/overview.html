@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% from "_table.html" import table %}
+{% block title %}Overview — finance{% endblock %}
+{% block content %}
+  <div class="flex items-baseline justify-between mb-6">
+    <h1 class="text-2xl font-semibold">Overview</h1>
+    <form class="text-sm flex items-center gap-3" method="get" action="/">
+      <label class="flex items-center gap-1">
+        <input type="checkbox" name="spend_only" value="true"
+               {% if spend_only %}checked{% endif %}
+               onchange="this.form.submit()">
+        <span>spend-only (drop flagged accounts)</span>
+      </label>
+      <label class="flex items-center gap-1">
+        <span>window</span>
+        <select name="months" onchange="this.form.submit()"
+                class="border rounded px-1 py-0.5 bg-white">
+          {% for m in [1, 3, 6, 12] %}
+            <option value="{{ m }}"{% if months == m %} selected{% endif %}>{{ m }}mo</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+
+  {# ---- Accounts strip ---- #}
+  <section class="mb-8">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-2">Accounts</h2>
+    <div class="flex flex-wrap gap-2">
+      {% for a in data.accounts %}
+        <div class="border border-neutral-200 rounded bg-white px-3 py-2 text-sm">
+          <div class="font-medium">{{ a.name }}</div>
+          <div class="text-xs muted">{{ a.aspsp_name }} · {{ a.n_tx }} tx
+            {% if a.excluded_from_spend %}
+              <span class="ml-1 text-[10px] uppercase text-amber-800 bg-amber-50 px-1 rounded">excluded</span>
+            {% endif %}
+          </div>
+        </div>
+      {% else %}
+        <p class="muted">No accounts connected. <a class="underline" href="/connect">Connect a bank</a>.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ---- Totals (window-averaged rollups) ---- #}
+  <section class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Monthly subscriptions</div>
+      <div class="text-2xl font-semibold num">€{{ '%.2f' | format(data.totals.monthly_subscriptions) }}</div>
+      <div class="text-xs muted">active is_subscription=1</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Monthly recurring spend</div>
+      <div class="text-2xl font-semibold num">€{{ '%.2f' | format(data.totals.monthly_recurring_spend) }}</div>
+      <div class="text-xs muted">all active recurring outflow</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Monthly spend avg</div>
+      <div class="text-2xl font-semibold num text-red-700">€{{ '%.2f' | format(data.totals.monthly_spend_avg) }}</div>
+      <div class="text-xs muted">{{ data.totals.window_months }}-month average</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Monthly income avg</div>
+      <div class="text-2xl font-semibold num text-emerald-700">€{{ '%.2f' | format(data.totals.monthly_income_avg) }}</div>
+      <div class="text-xs muted">{{ data.totals.window_months }}-month average</div>
+    </div>
+  </section>
+
+  {# The Essential / Optional split lives on /subscriptions, where it
+     reconciles to the subscription total. Keeping it off /overview to
+     avoid the confusion of two "Optional" numbers for different
+     populations. #}
+
+  {# ---- Month-to-date snapshot (from Phase 5 store helpers) ---- #}
+  <section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Spent (MTD)</div>
+      <div class="text-2xl font-semibold num">{{ '%.2f' | format(mtd.spent) }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Income (MTD)</div>
+      <div class="text-2xl font-semibold num">{{ '%.2f' | format(mtd.income) }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Net (MTD)</div>
+      <div class="text-2xl font-semibold num
+        {% if mtd.net < 0 %}text-red-700{% else %}text-emerald-700{% endif %}">
+        {{ '%.2f' | format(mtd.net) }}
+      </div>
+    </div>
+  </section>
+
+  {# ---- MoM trends ---- #}
+  <section class="mb-8">
+    <div class="flex items-baseline justify-between mb-2">
+      <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide">Month-over-month by category</h2>
+      <a href="/alerts" class="text-xs underline muted">see alerts →</a>
+    </div>
+    {{ table(
+      [
+        {"key": "category",   "label": "Category"},
+        {"key": "prev_month", "label": "Prev"},
+        {"key": "curr_month", "label": "Curr"},
+        {"key": "prev_spend", "label": "Prev spend",  "num": true, "fmt": "money"},
+        {"key": "curr_spend", "label": "Curr spend",  "num": true, "fmt": "money"},
+        {"key": "delta_abs",  "label": "Δ",           "num": true, "fmt": "money"},
+        {"key": "delta_pct",  "label": "Δ%",          "num": true, "fmt": "pct"},
+      ],
+      trends_rows
+    ) }}
+  </section>
+
+  {# ---- Top merchants ---- #}
+  <section class="mb-8">
+    <div class="flex items-baseline justify-between mb-2">
+      <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide">Top merchants by outflow</h2>
+      <a href="/merchants" class="text-xs underline muted">full list →</a>
+    </div>
+    {{ table(
+      [
+        {"key": "merchant",        "label": "Merchant"},
+        {"key": "category",        "label": "Category"},
+        {"key": "category_source", "label": "Source", "muted": true},
+        {"key": "txns",            "label": "Tx",    "num": true, "fmt": "int"},
+        {"key": "total_spend",     "label": "Spend", "num": true, "fmt": "money"},
+        {"key": "last_seen",       "label": "Last"},
+      ],
+      top_merchants_rows
+    ) }}
+  </section>
+
+  {# ---- Subscriptions + overlaps ---- #}
+  <section class="mb-8">
+    <div class="flex items-baseline justify-between mb-2">
+      <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide">Active subscriptions</h2>
+      <a href="/subscriptions" class="text-xs underline muted">overlaps & detail →</a>
+    </div>
+    {{ table(
+      [
+        {"key": "merchant",       "label": "Merchant"},
+        {"key": "category",       "label": "Category"},
+        {"key": "classification", "label": "Cadence"},
+        {"key": "typical_amount", "label": "Amount",      "num": true, "fmt": "money"},
+        {"key": "monthly_cost",   "label": "Monthly",     "num": true, "fmt": "money"},
+        {"key": "next_expected",  "label": "Next"},
+        {"key": "count",          "label": "Hits",        "num": true, "fmt": "int"},
+      ],
+      subs_rows
+    ) }}
+  </section>
+
+  {# ---- Forecast ---- #}
+  <section class="mb-8">
+    <div class="flex items-baseline justify-between mb-2">
+      <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide">Upcoming charges (30d)</h2>
+      <a href="/forecast" class="text-xs underline muted">extend horizon →</a>
+    </div>
+    {{ table(
+      [
+        {"key": "expected_date", "label": "Date"},
+        {"key": "days_until",    "label": "in days",        "num": true, "fmt": "int"},
+        {"key": "merchant",      "label": "Merchant"},
+        {"key": "category",      "label": "Category"},
+        {"key": "typical_amount","label": "Amount",         "num": true, "fmt": "money"},
+        {"key": "confidence",    "label": "Conf",           "num": true, "fmt": "money"},
+      ],
+      forecast_rows
+    ) }}
+  </section>
+
+  {# ---- Alerts ---- #}
+  <section class="mb-8 grid gap-6 lg:grid-cols-2">
+    <div>
+      <div class="flex items-baseline justify-between mb-2">
+        <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide">Recent large / new-merchant alerts</h2>
+        <a href="/alerts" class="text-xs underline muted">more →</a>
+      </div>
+      {{ table(
+        [
+          {"key": "booking_date", "label": "Date"},
+          {"key": "merchant",     "label": "Merchant"},
+          {"key": "amount",       "label": "Amount", "num": true, "fmt": "money"},
+          {"key": "reason",       "label": "Reason", "muted": true},
+        ],
+        alerts_rows
+      ) }}
+    </div>
+    <div>
+      <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-2">Recently stopped subscriptions</h2>
+      {{ table(
+        [
+          {"key": "merchant",         "label": "Merchant"},
+          {"key": "last_seen",        "label": "Last seen"},
+          {"key": "months_since_last","label": "Months ago",      "num": true, "fmt": "money"},
+          {"key": "estimated_saved",  "label": "~ Saved/mo",      "num": true, "fmt": "money"},
+        ],
+        stopped_rows
+      ) }}
+    </div>
+  </section>
+{% endblock %}

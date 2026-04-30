@@ -1,0 +1,28 @@
+{#
+  Inline category picker returned by POST /merchants/{id}/category.
+  Swapped into the table cell via hx-swap="outerHTML" so the badge updates.
+#}
+<form
+  hx-post="/merchants/{{ merchant_id }}/category"
+  hx-swap="outerHTML"
+  class="flex gap-1 items-center"
+>
+  <select name="category" class="text-xs border rounded px-1 py-0.5 bg-white"
+          onchange="this.form.requestSubmit()">
+    <option value=""{% if not category %} selected{% endif %}>— (clear)</option>
+    {% for c in taxonomy %}
+      <option value="{{ c }}"{% if category == c %} selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+  {% if source %}
+    <span class="text-[10px] uppercase tracking-wide
+      {% if source == 'user' %}text-emerald-700 bg-emerald-50
+      {% elif source == 'curated' %}text-sky-700 bg-sky-50
+      {% elif source == 'rule' %}text-neutral-700 bg-neutral-100
+      {% elif source == 'llm' %}text-violet-700 bg-violet-50
+      {% else %}text-neutral-500 bg-neutral-100{% endif %}
+      px-1.5 py-0.5 rounded">
+      {{ source }}
+    </span>
+  {% endif %}
+</form>

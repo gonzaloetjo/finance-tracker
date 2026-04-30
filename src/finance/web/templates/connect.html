@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="text-2xl font-semibold mb-6">Connect a bank ({{ country }})</h1>
+
+{% if error %}
+  <div class="bg-red-50 border border-red-300 text-red-900 rounded p-4 mb-4 text-sm">
+    {{ error }}
+  </div>
+{% endif %}
+
+{% if not aspsps %}
+  {% if not error %}<p class="text-neutral-600">No ASPSPs available for this country.</p>{% endif %}
+{% else %}
+  <p class="text-sm text-neutral-600 mb-4">
+    Pick a bank. You'll be redirected to its login, authorize access, and land back here.
+    Use <strong>Mock ASPSP</strong> to test the flow end-to-end in sandbox without real credentials.
+  </p>
+  <ul class="bg-white border rounded divide-y">
+    {% for a in aspsps %}
+      <li class="px-4 py-3 flex justify-between items-center">
+        <div>
+          <div class="font-medium">{{ a.name }}</div>
+          <div class="text-xs text-neutral-500">
+            consent ≤ {{ (a.maximum_consent_validity or 0) // 86400 }}d
+            {% if a.beta %} · beta{% endif %}
+          </div>
+        </div>
+        <form method="post" action="/connect">
+          <input type="hidden" name="aspsp_name" value="{{ a.name }}">
+          <input type="hidden" name="aspsp_country" value="{{ a.country }}">
+          <button class="bg-black text-white px-3 py-1.5 rounded text-sm">Connect</button>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

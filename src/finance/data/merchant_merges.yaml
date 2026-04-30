@@ -1,0 +1,24 @@
+# Curated merchant-canonical merges.
+#
+# Applied by:  uv run finance merchant apply-merges
+#
+# Each entry maps `src: dst`. On apply, if both canonical names exist in the
+# DB, `src`'s aliases/transactions/streams are re-pointed to `dst` and the
+# `src` row is deleted. Idempotent: missing source or target is skipped.
+#
+# Human-authored because fuzzy matching misses these (different token sets,
+# punctuation variants, truncation artifacts from BNP memos).
+
+# Telecom / French corporate name duplication
+ORANGE SA-ORANGE: ORANGE
+
+# Streaming — BNP truncates at different widths
+DISNEYP: DISNEY PLUS
+
+# Trailing-punctuation escapes that existed before _normalize_text was strengthened.
+# After re-enrichment these should stop appearing in new data.
+"NOTION LABS,": NOTION LABS
+"RENELACHANCE.": RENELACHANCE
+"AMZ DIGITAL FRA PAYLI2125856/": AMZ DIGITAL
+"AMAZON PAYMENTS PAYLI2441535/": AMAZON PAYMENTS
+"AMAZON PRIME FR PAYLI2469664/": AMAZON PRIME

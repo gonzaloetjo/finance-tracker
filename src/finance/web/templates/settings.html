@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Settings — finance{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-semibold mb-6">Settings</h1>
+
+  {# ─────────────── Anthropic API key ─────────────── #}
+  <section class="border border-neutral-200 rounded bg-white px-4 py-4 mb-6">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-3">
+      Anthropic API key
+    </h2>
+
+    {% if key_source %}
+      <p class="text-sm mb-3">
+        <span class="text-emerald-700 font-medium">✓ Key configured</span>
+        — resolved from <span class="font-mono text-xs bg-neutral-100 px-1 rounded">{{ key_source }}</span>
+      </p>
+    {% else %}
+      <p class="text-sm mb-3">
+        <span class="text-amber-700 font-medium">⚠ No key set</span> — LLM features
+        (Uncategorized → Categorize with AI, <code>finance advise ...</code>) will fail.
+      </p>
+    {% endif %}
+
+    <form
+      hx-post="/settings/llm-key"
+      hx-target="#llm-key-result"
+      hx-swap="innerHTML"
+      hx-on::after-request="if(event.detail.successful) this.reset()"
+      class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end"
+    >
+      <label class="sm:col-span-9">
+        <div class="text-xs muted mb-1">
+          Replace / set key (stored in OS keyring, overridden by
+          <code>ANTHROPIC_API_KEY</code> env var if set)
+        </div>
+        <input name="api_key" type="password" autocomplete="off"
+               placeholder="sk-ant-…"
+               class="w-full border rounded px-2 py-1 text-sm font-mono" required>
+      </label>
+      <div class="sm:col-span-3">
+        <button type="submit"
+                class="w-full text-sm px-3 py-1.5 bg-violet-700 text-white rounded hover:bg-violet-600">
+          Store key
+        </button>
+      </div>
+    </form>
+    <div id="llm-key-result" class="mt-3"></div>
+
+    <p class="text-xs muted mt-3">
+      To remove:  <code>uv run finance config clear-llm-key</code>.
+      The server process must be restarted to pick up a new key on the next request.
+    </p>
+  </section>
+
+  {# ─────────────── Default LLM models ─────────────── #}
+  <section class="border border-neutral-200 rounded bg-white px-4 py-4 mb-6">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-3">
+      Default models
+    </h2>
+    <dl class="grid grid-cols-2 gap-2 text-sm">
+      <dt class="muted">Categorization:</dt>
+      <dd><code>{{ default_categorize_model }}</code></dd>
+      <dt class="muted">Advisory:</dt>
+      <dd><code>{{ default_advise_model }}</code></dd>
+    </dl>
+    <p class="text-xs muted mt-3">
+      Override per-call with <code>finance enrich llm-categorize --model …</code>
+      or <code>finance advise subscriptions --model …</code>.
+      To change defaults globally, edit
+      <code>src/finance/llm/client.py</code> (DEFAULT_CATEGORIZE_MODEL / DEFAULT_ADVISE_MODEL).
+    </p>
+  </section>
+
+  {# ─────────────── LLM usage rollup ─────────────── #}
+  <section class="border border-neutral-200 rounded bg-white px-4 py-4 mb-6">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-3">
+      LLM usage (lifetime totals)
+    </h2>
+    {% if totals %}
+      <table class="w-full text-sm border-collapse">
+        <thead class="text-left muted">
+          <tr>
+            <th class="py-1 pr-4 font-medium">Kind</th>
+            <th class="py-1 pr-4 font-medium num">Calls</th>
+            <th class="py-1 pr-4 font-medium num">Input tok</th>
+            <th class="py-1 pr-4 font-medium num">Output tok</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in totals %}
+            <tr class="border-t border-neutral-200">
+              <td class="py-1 pr-4">{{ t.kind }}</td>
+              <td class="py-1 pr-4 num">{{ t.n }}</td>
+              <td class="py-1 pr-4 num">{{ t.in_tok }}</td>
+              <td class="py-1 pr-4 num">{{ t.out_tok }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="text-sm muted">No LLM runs yet.</p>
+    {% endif %}
+  </section>
+
+  {# ─────────────── Recent LLM runs ─────────────── #}
+  <section class="border border-neutral-200 rounded bg-white px-4 py-4">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-3">
+      Recent LLM runs (last 20)
+    </h2>
+    {% if runs %}
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border-collapse">
+          <thead class="text-left muted">
+            <tr>
+              <th class="py-1 pr-3 font-medium">Time</th>
+              <th class="py-1 pr-3 font-medium">Kind</th>
+              <th class="py-1 pr-3 font-medium">Model</th>
+              <th class="py-1 pr-3 font-medium">Status</th>
+              <th class="py-1 pr-3 font-medium num">In</th>
+              <th class="py-1 pr-3 font-medium num">Out</th>
+              <th class="py-1 pr-3 font-medium">Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in runs %}
+              <tr class="border-t border-neutral-200">
+                <td class="py-1 pr-3 muted">{{ r.started_at[:19] }}</td>
+                <td class="py-1 pr-3">{{ r.kind }}</td>
+                <td class="py-1 pr-3"><code class="text-xs">{{ r.model }}</code></td>
+                <td class="py-1 pr-3">
+                  {% if r.status == 'ok' %}
+                    <span class="text-emerald-700">ok</span>
+                  {% else %}
+                    <span class="text-red-700">{{ r.status }}</span>
+                  {% endif %}
+                </td>
+                <td class="py-1 pr-3 num">{{ r.input_tokens or '—' }}</td>
+                <td class="py-1 pr-3 num">{{ r.output_tokens or '—' }}</td>
+                <td class="py-1 pr-3 text-xs muted">{{ (r.error or '')[:60] }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-sm muted">No LLM runs yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

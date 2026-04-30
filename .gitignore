@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Env / secrets
+.env
+*.key
+*.age
+*.crt
+*.pem
+
+# SQLite
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Claude Code — developer-local only
+.claude/settings.local.json
+/audit-prompt.md
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/

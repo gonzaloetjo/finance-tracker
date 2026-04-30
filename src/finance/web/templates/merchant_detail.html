@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_table.html" import table %}
+{% block title %}{{ m.merchant }} — finance{% endblock %}
+{% block content %}
+  <a href="/merchants" class="text-sm underline muted">← all merchants</a>
+  <h1 class="text-2xl font-semibold mt-2 mb-4">{{ m.merchant }}</h1>
+
+  <section class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+    <div class="border border-neutral-200 rounded bg-white px-3 py-2">
+      <div class="text-xs muted uppercase">Category</div>
+      <div>
+        {% with merchant_id=m.merchant_id,
+                category=m.category or '',
+                source=m.category_source or '' %}
+          {% include "_category_picker.html" %}
+        {% endwith %}
+      </div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-3 py-2">
+      <div class="text-xs muted uppercase">Transactions</div>
+      <div class="text-xl font-semibold">{{ m.count }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-3 py-2">
+      <div class="text-xs muted uppercase">Total outflow</div>
+      <div class="text-xl font-semibold num">{{ '%.2f' | format(m.total_spend) }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-3 py-2">
+      <div class="text-xs muted uppercase">First / last</div>
+      <div class="text-sm">{{ m.first_seen or '—' }} →<br>{{ m.last_seen or '—' }}</div>
+    </div>
+  </section>
+
+  {% if m.aliases %}
+    <section class="mb-6">
+      <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-2">Aliases</h2>
+      <ul class="text-xs flex flex-wrap gap-2">
+        {% for alias in m.aliases %}
+          <li class="border border-neutral-200 bg-white px-2 py-1 rounded">{{ alias }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  <section class="mb-6">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-2">Transactions</h2>
+    {{ table(
+      [
+        {"key": "booking_date", "label": "Date"},
+        {"key": "amount",       "label": "Amount", "num": true, "fmt": "money"},
+        {"key": "currency",     "label": "Ccy"},
+        {"key": "stream_id",    "label": "Stream", "muted": true},
+        {"key": "memo_raw",     "label": "Memo",   "muted": true},
+      ],
+      m.tx_rows
+    ) }}
+  </section>
+{% endblock %}

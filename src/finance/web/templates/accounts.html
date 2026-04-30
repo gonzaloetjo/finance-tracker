@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Accounts — finance{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-semibold mb-6">Accounts</h1>
+
+  {% if not accounts %}
+    <p class="muted">No accounts connected yet. <a class="underline" href="/connect">Connect a bank</a> to get started.</p>
+  {% else %}
+    <div class="overflow-x-auto border border-neutral-200 rounded bg-white">
+      <table class="w-full text-sm border-collapse">
+        <thead class="text-left bg-neutral-100 text-neutral-600">
+          <tr>
+            <th class="py-2 px-3 font-medium">Account</th>
+            <th class="py-2 px-3 font-medium">Currency</th>
+            <th class="py-2 px-3 font-medium">Spend-analysis flag</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in accounts %}
+            {% include "_account_row.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-xs muted mt-3">
+      Flagged accounts are dropped from <code>--spend-only</code> analyses
+      (overview, top merchants, trends). Useful for joint savings / investment
+      accounts that shouldn't be treated as personal spending.
+    </p>
+  {% endif %}
+{% endblock %}

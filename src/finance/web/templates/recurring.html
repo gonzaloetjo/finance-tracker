@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_table.html" import table %}
+{% block title %}Recurring — finance{% endblock %}
+{% block content %}
+  <div class="flex items-baseline justify-between mb-4">
+    <h1 class="text-2xl font-semibold">Recurring streams</h1>
+    <form method="get" action="/recurring" class="text-sm">
+      <label class="flex items-center gap-1">
+        <input type="checkbox" name="active_only" value="true"
+               {% if active_only %}checked{% endif %}
+               onchange="this.form.submit()">
+        active only
+      </label>
+    </form>
+  </div>
+
+  <section class="grid grid-cols-2 lg:grid-cols-2 gap-4 mb-6">
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Recurring streams{% if active_only %} (active){% endif %}</div>
+      <div class="text-2xl font-semibold num">{{ summary.count }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Monthly total (|sum|)</div>
+      <div class="text-2xl font-semibold num">€{{ '%.2f' | format(summary.monthly_total) }}</div>
+    </div>
+  </section>
+
+  <p class="text-sm muted mb-4">
+    Streams flagged recurring via PRLV (SEPA mandate) OR regularity ≥ 0.7 over ≥ 60 days.
+    Not all are subscriptions — weekly FRANPRIX runs are recurring but not subscription-like.
+  </p>
+
+  {{ table(
+    [
+      {"key": "merchant",         "label": "Merchant"},
+      {"key": "category",         "label": "Category"},
+      {"key": "txn_type",         "label": "Type",      "muted": true},
+      {"key": "classification",   "label": "Cadence"},
+      {"key": "median_days",      "label": "d",         "num": true, "fmt": "int"},
+      {"key": "regularity",       "label": "Reg",       "num": true, "fmt": "money"},
+      {"key": "typical_amount",   "label": "Amount",    "num": true, "fmt": "money"},
+      {"key": "monthly_cost",     "label": "Monthly",   "num": true, "fmt": "money"},
+      {"key": "count",            "label": "Hits",      "num": true, "fmt": "int"},
+      {"key": "last_seen",        "label": "Last"},
+      {"key": "next_expected",    "label": "Next"},
+    ],
+    rows
+  ) }}
+{% endblock %}

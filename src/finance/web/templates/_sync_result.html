@@ -1,0 +1,14 @@
+<div class="text-sm bg-white border rounded px-3 py-2">
+  {% set total = results|sum(attribute='added') %}
+  <strong>+{{ total }}</strong> new transaction(s)
+  {% for r in results %}
+    <div class="text-xs text-neutral-500 mt-1">
+      {{ r.account_uid[:8] }}…
+      {% if r.status == 'ok' %}
+        +{{ r.added }} ({{ r.fetched }} fetched)
+      {% else %}
+        <span class="text-red-600">error: {{ r.error }}</span>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>

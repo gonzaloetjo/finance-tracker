@@ -1,0 +1,19 @@
+# Curated merchant → category map.
+#
+# Each entry maps a canonical merchant name (as produced by normalize_merchant)
+# to a spending category. These take precedence over regex rules but are
+# overridden by user-level corrections (finance merchant set-category).
+#
+# Populate this by running:
+#   uv run finance merchant seed-top --limit 20
+#
+# Or edit by hand. After editing, re-enrich to apply:
+#   uv run finance analyze enrich --reenrich
+#
+# Format:
+#   CANONICAL_NAME: Category
+#
+# Examples:
+#   DELIVEROO: Dining
+#   NETFLIX: Subscriptions
+#   CARREFOUR: Groceries

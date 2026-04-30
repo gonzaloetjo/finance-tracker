@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Advice — finance{% endblock %}
+{% block content %}
+  <div class="flex items-baseline justify-between mb-4">
+    <h1 class="text-2xl font-semibold">LLM advice</h1>
+    <form method="get" action="/advice" class="text-sm">
+      <label class="flex items-center gap-1">
+        <input type="checkbox" name="show_dismissed" value="true"
+               {% if show_dismissed %}checked{% endif %}
+               onchange="this.form.submit()">
+        show dismissed
+      </label>
+    </form>
+  </div>
+
+  {% if not items %}
+    <div class="border border-neutral-200 rounded bg-white p-6 text-sm muted">
+      No advice on file. Generate some with:
+      <pre class="mt-2 bg-neutral-100 p-2 rounded text-xs overflow-x-auto"
+>uv run finance advise subscriptions
+uv run finance advise cutbacks
+uv run finance advise integral-offers</pre>
+    </div>
+  {% else %}
+    <div class="space-y-4">
+      {% for item in items %}
+        <article id="advice-{{ item.id }}"
+                 class="border border-neutral-200 rounded bg-white p-4
+                        {% if item.dismissed_at %}opacity-50{% endif %}">
+          <header class="flex justify-between items-baseline mb-3">
+            <div>
+              <span class="text-xs uppercase tracking-wide muted">{{ item.kind }}</span>
+              <span class="ml-2 text-xs muted">{{ item.generated_at[:19] }} · {{ item.model }}</span>
+              {% if item.dismissed_at %}
+                <span class="ml-2 text-xs text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded">dismissed</span>
+              {% endif %}
+            </div>
+            {% if not item.dismissed_at %}
+              <button
+                hx-post="/advice/{{ item.id }}/dismiss"
+                hx-target="#advice-{{ item.id }}"
+                hx-swap="delete"
+                class="text-xs text-neutral-400 hover:text-red-600 px-2">✕</button>
+            {% endif %}
+          </header>
+
+          {# Content rendering depends on `kind`. Fall back to raw JSON. #}
+          {% if item.kind == 'subscription_overlap' and item.payload.recommendations %}
+            <ul class="space-y-3">
+              {% for rec in item.payload.recommendations %}
+                <li>
+                  <div class="flex justify-between items-baseline">
+                    <div class="font-medium">{{ rec.domain }}</div>
+                    <div class="text-sm">
+                      <span class="text-xs uppercase muted mr-2">{{ rec.action }}</span>
+                      <span class="text-emerald-700">~€{{ '%.2f' | format(rec.monthly_savings) }} / mo</span>
+                    </div>
+                  </div>
+                  <div class="text-xs muted mb-1">
+                    from: {{ rec.services | join(', ') }}
+                    {% if rec.suggested_services %}
+                      → keep: {{ rec.suggested_services | join(', ') }}
+                    {% endif %}
+                  </div>
+                  <div class="text-sm">{{ rec.rationale }}</div>
+                </li>
+              {% endfor %}
+            </ul>
+
+          {% elif item.kind == 'cutback' and item.payload.suggestions %}
+            <ul class="space-y-3">
+              {% for s in item.payload.suggestions %}
+                <li>
+                  <div class="flex justify-between items-baseline">
+                    <div class="font-medium">{{ s.category }}</div>
+                    <div class="text-sm num">
+                      €{{ '%.0f' | format(s.current_monthly) }}
+                      → <span class="text-emerald-700">€{{ '%.0f' | format(s.suggested_monthly) }}</span>
+                    </div>
+                  </div>
+                  <div class="text-sm mb-1">{{ s.rationale }}</div>
+                  {% if s.specific_actions %}
+                    <ul class="text-xs list-disc ml-5 muted">
+                      {% for a in s.specific_actions %}<li>{{ a }}</li>{% endfor %}
+                    </ul>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+
+          {% elif item.kind == 'integral_offer' and item.payload.bundles %}
+            <ul class="space-y-3">
+              {% for b in item.payload.bundles %}
+                <li>
+                  <div class="flex justify-between items-baseline">
+                    <div class="font-medium">{{ b.theme }}</div>
+                    <div class="text-sm">
+                      current: €{{ '%.2f' | format(b.current_monthly_total) }} /mo
+                      · potential: <span class="text-emerald-700">~€{{ '%.2f' | format(b.potential_saving_monthly) }}</span>
+                    </div>
+                  </div>
+                  <div class="text-xs muted mb-1">{{ b.components | join(', ') }}</div>
+                  <div class="text-sm">{{ b.rationale }}</div>
+                  {% if b.caveat %}
+                    <div class="text-xs mt-1 italic muted">⚠ {{ b.caveat }}</div>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+
+          {% else %}
+            <pre class="text-xs bg-neutral-100 p-2 rounded overflow-x-auto">{{ item.payload }}</pre>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endblock %}

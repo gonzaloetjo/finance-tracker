@@ -1,0 +1,26 @@
+{#
+  One account row with a toggle for excluded_from_spend.
+  Returned by POST /accounts/{uid}/toggle for in-place swap.
+#}
+<tr class="border-t border-neutral-200" id="acc-{{ a.account_uid }}">
+  <td class="py-2 px-3">
+    <div class="font-medium">{{ a.name }}</div>
+    <div class="text-xs muted">{{ a.aspsp_name }} · {{ a.iban or a.account_uid[:8] }}</div>
+  </td>
+  <td class="py-2 px-3">{{ a.currency or '—' }}</td>
+  <td class="py-2 px-3">
+    <form hx-post="/accounts/{{ a.account_uid }}/toggle"
+          hx-target="#acc-{{ a.account_uid }}"
+          hx-swap="outerHTML">
+      <button type="submit"
+              class="text-xs px-2 py-1 rounded border
+                {% if a.excluded %}
+                  border-amber-400 text-amber-800 bg-amber-50 hover:bg-amber-100
+                {% else %}
+                  border-emerald-400 text-emerald-800 bg-emerald-50 hover:bg-emerald-100
+                {% endif %}">
+        {% if a.excluded %}⨯ EXCLUDED (click to include){% else %}✓ included (click to exclude){% endif %}
+      </button>
+    </form>
+  </td>
+</tr>

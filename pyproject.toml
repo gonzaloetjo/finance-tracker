@@ -1,0 +1,69 @@
+[project]
+name = "finance"
+version = "0.1.0"
+description = "Personal finance tracker for French bank accounts via Enable Banking"
+authors = [
+    { name = "GENGE", email = "12486708+gonzaloetjo@users.noreply.github.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "pyjwt[crypto]>=2.9",
+    "cryptography>=43",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.5",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "pyyaml>=6",
+    "python-multipart>=0.0.9",
+    "typer>=0.12",
+    "keyring>=25",
+    "pyrage>=1.2",
+    "tomli-w>=1.0",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "rapidfuzz>=3.9",
+    "anthropic>=0.40",
+    "instructor>=1.10",
+]
+
+[project.scripts]
+finance = "finance.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "vulture>=2.11",
+    "pip-audit>=2.7",
+    "jupyterlab>=4.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+
+[tool.mypy]
+# Third-party packages without type stubs. Installing `types-PyYAML` +
+# `pandas-stubs` as dev deps is the alternative but adds ~50 MB for no
+# runtime benefit; ignoring imports is the right trade-off here.
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*", "yaml", "pyrage"]
+ignore_missing_imports = true
+
+[tool.ruff.lint.flake8-bugbear]
+# typer's documented idiom is to call typer.Argument()/typer.Option() as the
+# default value of a command parameter. Ruff's B008 (function-call-in-default)
+# is a false positive in that case — treat them as immutable.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]

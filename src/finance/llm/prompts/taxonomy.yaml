@@ -1,0 +1,25 @@
+# Shared category taxonomy used by categorization + advisory.
+# Keep this list short and mutually-exclusive — the LLM assigns exactly one
+# category per merchant. Expand only when real data surfaces a repeated miss.
+- Groceries
+- Dining
+- Health
+- Telecom
+- Utilities
+- Transport
+- Shopping
+- Travel
+- Entertainment   # streaming (Netflix, DAZN, Disney+, Spotify), cinema, concerts, games
+- AI              # ChatGPT, Claude, Mistral, Cursor, Copilot, Perplexity, Replicate, etc.
+- SaaS            # productivity / dev tools: Notion, GitHub, Figma, Linear, 1Password, Todoist
+- Housing
+- Insurance
+- Financial
+- Education
+- Income
+- Transfer
+- Investment   # crypto / broker / PEA / retirement — cash repositioned, not consumed (excluded from spend)
+- Loan        # mortgage / personal-loan / rent-to-own repayments — cash outflow, counted as spend
+- Fees
+- Subscriptions   # narrow fallback for subscription services that don't fit any thematic category above
+- Uncategorized

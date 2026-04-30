@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% from "_table.html" import table %}
+{% block title %}Alerts — finance{% endblock %}
+{% block content %}
+  <div class="flex items-baseline justify-between mb-4">
+    <h1 class="text-2xl font-semibold">Alerts</h1>
+    <form method="get" action="/alerts" class="text-sm">
+      <label class="flex items-center gap-1">
+        <span>threshold €</span>
+        <input type="number" name="threshold" value="{{ threshold | int }}"
+               min="50" step="50"
+               class="w-24 border rounded px-1 py-0.5">
+      </label>
+      <button type="submit" class="text-xs px-2 py-1 bg-neutral-900 text-white rounded ml-2">Apply</button>
+    </form>
+  </div>
+
+  <section class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Large / new alerts</div>
+      <div class="text-2xl font-semibold num">{{ summary.new_large_count }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Alerts total |amount|</div>
+      <div class="text-2xl font-semibold num">€{{ '%.2f' | format(summary.new_large_total) }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Stopped subs</div>
+      <div class="text-2xl font-semibold num">{{ summary.stopped_count }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">~ Monthly saved</div>
+      <div class="text-2xl font-semibold num text-emerald-700">€{{ '%.2f' | format(summary.stopped_monthly_saved) }}</div>
+    </div>
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-2">
+      New large / new-merchant PRLV
+    </h2>
+    <p class="text-xs muted mb-2">
+      Transactions over €{{ threshold | int }} from a merchant first-seen in the last 30 days,
+      OR any PRLV from a new merchant regardless of amount.
+    </p>
+    {{ table(
+      [
+        {"key": "booking_date", "label": "Date"},
+        {"key": "merchant",     "label": "Merchant"},
+        {"key": "category",     "label": "Category"},
+        {"key": "txn_type",     "label": "Type",   "muted": true},
+        {"key": "amount",       "label": "Amount", "num": true, "fmt": "money"},
+        {"key": "reason",       "label": "Reason", "muted": true},
+      ],
+      new_large
+    ) }}
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-2">
+      Recently stopped subscriptions
+    </h2>
+    <p class="text-xs muted mb-2">
+      Active subs whose last charge is within the trailing 120 days but the stream
+      has gone inactive (no expected charge in the window). Wins or missed renewals — depends.
+    </p>
+    {{ table(
+      [
+        {"key": "merchant",          "label": "Merchant"},
+        {"key": "category",          "label": "Category"},
+        {"key": "classification",    "label": "Cadence"},
+        {"key": "typical_amount",    "label": "Amount",       "num": true, "fmt": "money"},
+        {"key": "last_seen",         "label": "Last seen"},
+        {"key": "months_since_last", "label": "Months ago",   "num": true, "fmt": "money"},
+        {"key": "estimated_saved",   "label": "~ Saved/mo",   "num": true, "fmt": "money"},
+      ],
+      stopped
+    ) }}
+  </section>
+{% endblock %}

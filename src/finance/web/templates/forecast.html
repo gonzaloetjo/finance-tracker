@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "_table.html" import table %}
+{% block title %}Forecast — finance{% endblock %}
+{% block content %}
+  <div class="flex items-baseline justify-between mb-4">
+    <h1 class="text-2xl font-semibold">Upcoming charges</h1>
+    <form method="get" action="/forecast" class="text-sm">
+      <label class="flex items-center gap-1">
+        <span>horizon</span>
+        <select name="days" onchange="this.form.submit()"
+                class="border rounded px-1 py-0.5 bg-white">
+          {% for d in [7, 14, 30, 60, 90] %}
+            <option value="{{ d }}"{% if days == d %} selected{% endif %}>{{ d }} days</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  </div>
+
+  <section class="grid grid-cols-3 gap-4 mb-6">
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Expected hits</div>
+      <div class="text-2xl font-semibold num">{{ summary.count }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Total outflow ({{ days }}d)</div>
+      <div class="text-2xl font-semibold num text-red-700">€{{ '%.2f' | format(summary.total_outflow) }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Total inflow ({{ days }}d)</div>
+      <div class="text-2xl font-semibold num text-emerald-700">€{{ '%.2f' | format(summary.total_inflow) }}</div>
+    </div>
+  </section>
+
+  <p class="text-sm muted mb-4">
+    Each active recurring stream is walked forward from its last hit by its median cadence.
+    Confidence = regularity × decay(time since last seen).
+  </p>
+
+  {{ table(
+    [
+      {"key": "expected_date",  "label": "Date"},
+      {"key": "days_until",     "label": "Days until",  "num": true, "fmt": "int"},
+      {"key": "merchant",       "label": "Merchant"},
+      {"key": "category",       "label": "Category"},
+      {"key": "classification", "label": "Cadence"},
+      {"key": "typical_amount", "label": "Amount",      "num": true, "fmt": "money"},
+      {"key": "confidence",     "label": "Conf",        "num": true, "fmt": "money"},
+    ],
+    rows
+  ) }}
+{% endblock %}

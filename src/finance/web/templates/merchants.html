@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block title %}Merchants — finance{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-semibold mb-4">
+    {% if filters.uncategorized %}Uncategorized merchants{% else %}Merchants{% endif %}
+  </h1>
+  {% if filters.uncategorized %}
+    <p class="text-sm muted mb-4">
+      Merchants without a final category. Pick one from the dropdown on each
+      row — it's saved with <code>source='user'</code> so future re-enriches
+      never overwrite it. Example transactions shown under each row for context.
+    </p>
+
+    <section class="mb-4 bg-white border border-neutral-200 rounded px-4 py-3">
+      <div class="flex flex-wrap gap-3 items-center">
+        <button
+          hx-post="/merchants/llm-categorize?provider=api"
+          hx-target="#llm-result"
+          hx-swap="innerHTML"
+          hx-indicator="this, #llm-banner-api"
+          hx-disabled-elt="this, .btn-claude-cli"
+          class="text-sm px-4 py-2 bg-violet-700 text-white rounded hover:bg-violet-600">
+          <span class="htmx-indicator"><span class="spinner mr-2"></span>Running API…</span>
+          <span class="when-idle">🤖 AI (API)</span>
+        </button>
+        <button
+          hx-post="/merchants/llm-categorize?provider=claude-cli"
+          hx-target="#llm-result"
+          hx-swap="innerHTML"
+          hx-indicator="this, #llm-banner-cli"
+          hx-disabled-elt="this, button:not(.btn-claude-cli)"
+          class="btn-claude-cli text-sm px-4 py-2 bg-teal-700 text-white rounded hover:bg-teal-600">
+          <span class="htmx-indicator"><span class="spinner mr-2"></span>Running Claude Code…</span>
+          <span class="when-idle">💬 AI (Claude Code + WebSearch)</span>
+        </button>
+        <span class="text-xs muted">
+          <strong>API</strong>: Haiku, ~3¢/run, fast (~30s).
+          <strong>Claude Code</strong>: uses your subscription, slower (minutes),
+          has WebSearch for unfamiliar merchants.
+        </span>
+      </div>
+
+      <div id="llm-banner-api" class="htmx-indicator mt-3 px-3 py-2 rounded bg-violet-50 border border-violet-200 text-sm text-violet-900">
+        <span class="spinner mr-2"></span>
+        <strong>API running (Haiku).</strong> ~20–40 seconds for 100–150 merchants.
+        Don't close this tab. The page will refresh automatically when done.
+        <div
+          class="mt-2"
+          hx-get="/llm/progress"
+          hx-trigger="load, every 2s"
+          hx-swap="innerHTML">
+          <span class="muted">live status loading…</span>
+        </div>
+      </div>
+      <div id="llm-banner-cli" class="htmx-indicator mt-3 px-3 py-2 rounded bg-teal-50 border border-teal-200 text-sm text-teal-900">
+        <span class="spinner mr-2"></span>
+        <strong>Claude Code running (subscription).</strong> Small batches of 8 merchants;
+        each can take 30–90 s (longer with WebSearch). Total 5–15 min is normal.
+        Don't close this tab. Live progress below:
+        <div
+          class="mt-2"
+          hx-get="/llm/progress"
+          hx-trigger="load, every 2s"
+          hx-swap="innerHTML">
+          <span class="muted">waiting for first batch…</span>
+        </div>
+      </div>
+    </section>
+    <div id="llm-result" class="mb-6"></div>
+
+    {% if proposals %}
+      <section class="mb-6">
+        <div class="flex items-baseline justify-between mb-2">
+          <h2 class="text-sm font-semibold text-violet-800 uppercase tracking-wide">
+            🤖 LLM suggestions ({{ proposals|length }}) — review and accept
+          </h2>
+          <div class="flex gap-2">
+            <button
+              hx-post="/merchants/accept-all-proposals"
+              hx-target="#accept-all-result"
+              hx-swap="innerHTML"
+              hx-confirm="Accept all {{ proposals|length }} LLM proposals at once?"
+              hx-disabled-elt="this"
+              class="text-xs px-3 py-1.5 rounded bg-emerald-700 text-white hover:bg-emerald-600">
+              ✓ Accept all ({{ proposals|length }})
+            </button>
+          </div>
+        </div>
+        <div id="accept-all-result"></div>
+        <p class="text-xs muted mb-3">
+          The LLM proposed these categories below the auto-write threshold
+          ({{ (auto_write_threshold * 100) | round | int }} %). Accept to apply with
+          <code>source='user'</code>; Ignore to dismiss for this run (it'll
+          come back next time the LLM still suggests it).
+        </p>
+        <div class="overflow-x-auto border border-violet-200 rounded bg-violet-50/40">
+          <table class="w-full text-sm border-collapse">
+            <thead class="text-left bg-violet-100 text-violet-800">
+              <tr>
+                <th class="py-2 px-3 font-medium">Merchant</th>
+                <th class="py-2 px-3 font-medium">Suggested</th>
+                <th class="py-2 px-3 font-medium num">Conf.</th>
+                <th class="py-2 px-3 font-medium num">Spend</th>
+                <th class="py-2 px-3 font-medium">Reasoning</th>
+                <th class="py-2 px-3 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in proposals %}
+                <tr id="prop-{{ p.merchant_id }}" class="border-t border-violet-100">
+                  <td class="py-2 px-3 font-medium">
+                    <a href="/merchants/{{ p.merchant }}" class="hover:underline">{{ p.merchant }}</a>
+                  </td>
+                  <td class="py-2 px-3">{{ p.category }}</td>
+                  <td class="py-2 px-3 num">{{ (p.confidence * 100) | round | int }}%</td>
+                  <td class="py-2 px-3 num">€{{ '%.2f' | format(p.total_spend) }}</td>
+                  <td class="py-2 px-3 text-xs muted">{{ p.reasoning or '—' }}</td>
+                  <td class="py-2 px-3 text-right whitespace-nowrap">
+                    <button
+                      hx-post="/merchants/{{ p.merchant_id }}/accept-proposal"
+                      hx-target="#prop-{{ p.merchant_id }}"
+                      hx-swap="delete"
+                      class="text-xs px-2 py-1 rounded border border-emerald-400 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 mr-1">
+                      Accept
+                    </button>
+                    <button
+                      hx-post="/merchants/{{ p.merchant_id }}/ignore-proposal"
+                      hx-target="#prop-{{ p.merchant_id }}"
+                      hx-swap="delete"
+                      class="text-xs px-2 py-1 rounded border border-neutral-300 text-neutral-600 hover:bg-neutral-100">
+                      Ignore
+                    </button>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endif %}
+
+    <style>
+      /* Button label toggle: hide "idle" label during request, hide "running"
+         label when idle. .when-idle / .htmx-indicator span live in the button. */
+      .htmx-request > .when-idle { display: none; }
+      button > .htmx-indicator { display: none; }
+      .htmx-request > .htmx-indicator { display: inline-flex !important; }
+    </style>
+  {% endif %}
+
+  <section class="grid grid-cols-4 gap-4 mb-4">
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Merchants shown</div>
+      <div class="text-2xl font-semibold num">{{ summary.count }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Transactions</div>
+      <div class="text-2xl font-semibold num">{{ summary.total_txns }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Outflow</div>
+      <div class="text-2xl font-semibold num text-red-700">−€{{ '%.2f' | format(summary.total_spend) }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Inflow</div>
+      <div class="text-2xl font-semibold num text-emerald-700">+€{{ '%.2f' | format(summary.total_income) }}</div>
+    </div>
+  </section>
+
+  <form class="mb-4 flex flex-wrap gap-4 text-sm items-center bg-white border border-neutral-200 rounded px-4 py-3" method="get" action="/merchants">
+    <label class="flex items-center gap-1">
+      <span>Top</span>
+      <input type="number" name="top" value="{{ filters.top }}" min="5" max="500"
+             class="w-20 border rounded px-1 py-0.5">
+    </label>
+    <label class="flex items-center gap-1">
+      <input type="checkbox" name="uncategorized" value="true"
+             {% if filters.uncategorized %}checked{% endif %}>
+      uncategorized only
+    </label>
+    <label class="flex items-center gap-1">
+      <input type="checkbox" name="spend_only" value="true"
+             {% if filters.spend_only %}checked{% endif %}>
+      spend-only
+    </label>
+    <label class="flex items-center gap-1">
+      <span>since</span>
+      <input type="date" name="since" value="{{ filters.since }}"
+             class="border rounded px-1 py-0.5">
+    </label>
+    <button type="submit" class="text-xs px-3 py-1.5 bg-neutral-900 text-white rounded hover:bg-neutral-700">Apply</button>
+  </form>
+
+  <div class="overflow-x-auto border border-neutral-200 rounded bg-white">
+    <table class="w-full text-sm border-collapse">
+      <thead class="text-left bg-neutral-100 text-neutral-600">
+        <tr>
+          <th class="py-2 px-3 font-medium">Merchant</th>
+          <th class="py-2 px-3 font-medium">Category</th>
+          <th class="py-2 px-3 font-medium text-right">Tx</th>
+          <th class="py-2 px-3 font-medium text-right">Out</th>
+          <th class="py-2 px-3 font-medium text-right">In</th>
+          <th class="py-2 px-3 font-medium">First seen</th>
+          <th class="py-2 px-3 font-medium">Last seen</th>
+          <th class="py-2 px-3 font-medium text-right">Aliases</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr class="border-t border-neutral-200 hover:bg-neutral-50">
+            <td class="py-2 px-3">
+              <a href="/merchants/{{ row.merchant }}" class="hover:underline">{{ row.merchant }}</a>
+            </td>
+            <td class="py-2 px-3">
+              {% with merchant_id=row.merchant_id,
+                      category=row.category or '',
+                      source=row.category_source or '' %}
+                {% include "_category_picker.html" %}
+              {% endwith %}
+            </td>
+            <td class="py-2 px-3 num">{{ row.txns }}</td>
+            <td class="py-2 px-3 num {% if row.total_spend > 0 %}text-red-700{% else %}muted{% endif %}">
+              {% if row.total_spend > 0 %}−{{ '%.2f' | format(row.total_spend) }}{% else %}—{% endif %}
+            </td>
+            <td class="py-2 px-3 num {% if row.total_income > 0 %}text-emerald-700{% else %}muted{% endif %}">
+              {% if row.total_income > 0 %}+{{ '%.2f' | format(row.total_income) }}{% else %}—{% endif %}
+            </td>
+            <td class="py-2 px-3">{{ row.first_seen or '—' }}</td>
+            <td class="py-2 px-3">{{ row.last_seen or '—' }}</td>
+            <td class="py-2 px-3 num">{{ row.aliases_count }}</td>
+          </tr>
+          {% if filters.uncategorized and memos_by_mid.get(row.merchant_id) %}
+            <tr class="border-t-0 bg-neutral-50/60">
+              <td colspan="8" class="py-1 px-6 text-xs muted">
+                {% for memo in memos_by_mid[row.merchant_id] %}
+                  <div class="truncate">· {{ memo[:160] }}</div>
+                {% endfor %}
+              </td>
+            </tr>
+          {% endif %}
+        {% else %}
+          <tr><td class="py-4 px-3 muted" colspan="8">(no merchants)</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

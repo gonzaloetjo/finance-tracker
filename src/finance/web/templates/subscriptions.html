@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% from "_table.html" import table %}
+{% block title %}Subscriptions — finance{% endblock %}
+{% block content %}
+  <h1 class="text-2xl font-semibold mb-4">Subscriptions</h1>
+
+  {# ---- Essential vs Optional split — of SUBSCRIPTION total, so numbers reconcile ---- #}
+  {% set _sub_total = totals.monthly_sub_essential + totals.monthly_sub_optional + totals.monthly_sub_other %}
+  <section class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <div class="border border-slate-300 rounded bg-slate-50 px-4 py-3">
+      <div class="flex items-baseline justify-between">
+        <div class="text-xs text-slate-700 uppercase font-semibold">Essential (must-pay)</div>
+        <div class="text-2xl font-semibold num text-slate-900">€{{ '%.2f' | format(totals.monthly_sub_essential) }}</div>
+      </div>
+      <div class="text-xs muted">utilities · housing · loan · insurance · telecom · transport</div>
+      {% if totals.sub_essential_by_category %}
+        <ul class="mt-2 text-sm">
+          {% for cat, amt in totals.sub_essential_by_category.items() %}
+            <li class="flex justify-between border-t border-slate-200 py-1">
+              <span>{{ cat }}</span>
+              <span class="num">€{{ '%.2f' | format(amt) }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="text-sm muted mt-2">no essential subs detected</div>
+      {% endif %}
+    </div>
+
+    <div class="border border-sky-300 rounded bg-sky-50 px-4 py-3">
+      <div class="flex items-baseline justify-between">
+        <div class="text-xs text-sky-800 uppercase font-semibold">Optional (chose-to-pay)</div>
+        <div class="text-2xl font-semibold num text-sky-900">€{{ '%.2f' | format(totals.monthly_sub_optional) }}</div>
+      </div>
+      <div class="text-xs muted">subscriptions · entertainment · AI · SaaS · education · health</div>
+      {% if totals.sub_optional_by_category %}
+        <ul class="mt-2 text-sm">
+          {% for cat, amt in totals.sub_optional_by_category.items() %}
+            <li class="flex justify-between border-t border-sky-200 py-1">
+              <span>{{ cat }}</span>
+              <span class="num">€{{ '%.2f' | format(amt) }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="text-sm muted mt-2">no optional subs detected</div>
+      {% endif %}
+      {% if totals.monthly_sub_other > 0 %}
+        <div class="text-xs muted mt-2 pt-2 border-t border-sky-200">
+          + €{{ '%.2f' | format(totals.monthly_sub_other) }}/mo uncategorized subs
+        </div>
+      {% endif %}
+    </div>
+  </section>
+  <p class="text-xs muted mb-4">
+    Essential €{{ '%.2f' | format(totals.monthly_sub_essential) }}
+    + Optional €{{ '%.2f' | format(totals.monthly_sub_optional) }}
+    {% if totals.monthly_sub_other > 0 %}
+      + Other €{{ '%.2f' | format(totals.monthly_sub_other) }}
+    {% endif %}
+    = <strong>€{{ '%.2f' | format(_sub_total) }}</strong>
+    (monthly total of all active subscriptions)
+  </p>
+
+  <section class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Active subscriptions</div>
+      <div class="text-2xl font-semibold num">{{ summary.count }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Monthly total</div>
+      <div class="text-2xl font-semibold num">€{{ '%.2f' | format(summary.monthly_total) }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Overlap domains</div>
+      <div class="text-2xl font-semibold num">{{ summary.overlap_domains }}</div>
+    </div>
+    <div class="border border-neutral-200 rounded bg-white px-4 py-3">
+      <div class="text-xs muted uppercase">Monthly in overlaps</div>
+      <div class="text-2xl font-semibold num">€{{ '%.2f' | format(summary.overlap_monthly) }}</div>
+    </div>
+    <div class="border border-amber-300 rounded bg-amber-50 px-4 py-3">
+      <div class="text-xs text-amber-800 uppercase">Candidates to review</div>
+      <div class="text-2xl font-semibold num">{{ summary.candidates }}</div>
+    </div>
+  </section>
+
+  {% if candidates %}
+    <section class="mb-8">
+      <h2 class="text-sm font-semibold text-amber-800 uppercase tracking-wide mb-2">
+        🤔 Subscription candidates — blocked by category, looks like a sub
+      </h2>
+      <p class="text-xs muted mb-3">
+        These streams are recurring + monthly + stable-amount — but their
+        merchant is in a category we normally don't auto-flag as subscription
+        (Dining, Groceries, Income, Transfer, Investment).
+        <strong>Accept</strong> if it really is a subscription (e.g. a monthly
+        meal-kit, gym membership disguised as Transport, etc.); <strong>Reject</strong>
+        to lock it out so it doesn't keep showing up.
+      </p>
+      <div class="overflow-x-auto border border-amber-200 rounded bg-amber-50/40">
+        <table class="w-full text-sm border-collapse">
+          <thead class="text-left bg-amber-100 text-amber-900">
+            <tr>
+              <th class="py-2 px-3 font-medium">Merchant</th>
+              <th class="py-2 px-3 font-medium">Category</th>
+              <th class="py-2 px-3 font-medium">Cadence</th>
+              <th class="py-2 px-3 font-medium num">Amount</th>
+              <th class="py-2 px-3 font-medium num">Monthly</th>
+              <th class="py-2 px-3 font-medium num">Hits</th>
+              <th class="py-2 px-3 font-medium num">Spread</th>
+              <th class="py-2 px-3 font-medium"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in candidates %}
+              <tr id="cand-{{ c.stream_id }}" class="border-t border-amber-100">
+                <td class="py-2 px-3 font-medium">{{ c.merchant }}</td>
+                <td class="py-2 px-3">{{ c.category }}</td>
+                <td class="py-2 px-3">{{ c.classification }}</td>
+                <td class="py-2 px-3 num">{{ '%.2f' | format(c.typical_amount) }}</td>
+                <td class="py-2 px-3 num">{{ '%.2f' | format(c.monthly_cost) }}</td>
+                <td class="py-2 px-3 num">{{ c.count }}</td>
+                <td class="py-2 px-3 num">{{ '%.1f' | format(c.amount_spread_pct) }}%</td>
+                <td class="py-2 px-3 text-right whitespace-nowrap">
+                  <button
+                    hx-post="/streams/{{ c.stream_id }}/accept-as-sub"
+                    hx-target="#cand-{{ c.stream_id }}"
+                    hx-swap="delete"
+                    class="text-xs px-2 py-1 rounded border border-emerald-400 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 mr-1">
+                    Accept
+                  </button>
+                  <button
+                    hx-post="/streams/{{ c.stream_id }}/reject-as-sub"
+                    hx-target="#cand-{{ c.stream_id }}"
+                    hx-swap="delete"
+                    class="text-xs px-2 py-1 rounded border border-neutral-300 text-neutral-600 hover:bg-neutral-100">
+                    Reject
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="mb-8">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-2">
+      Domain overlaps (≥ 2 services)
+    </h2>
+    {{ table(
+      [
+        {"key": "domain",          "label": "Domain"},
+        {"key": "services_count",  "label": "#",       "num": true, "fmt": "int"},
+        {"key": "services",        "label": "Services"},
+        {"key": "monthly_cost",    "label": "Monthly", "num": true, "fmt": "money"},
+      ],
+      overlaps
+    ) }}
+    <p class="text-xs muted mt-2">
+      Generate consolidation recommendations with <code>finance advise subscriptions</code>.
+    </p>
+  </section>
+
+  <section class="mb-8">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-2">
+      Active subscriptions
+    </h2>
+    {{ table(
+      [
+        {"key": "merchant",       "label": "Merchant"},
+        {"key": "category",       "label": "Category"},
+        {"key": "classification", "label": "Cadence"},
+        {"key": "median_days",    "label": "d",        "num": true, "fmt": "int"},
+        {"key": "typical_amount", "label": "Amount",   "num": true, "fmt": "money"},
+        {"key": "monthly_cost",   "label": "Monthly",  "num": true, "fmt": "money"},
+        {"key": "count",          "label": "Hits",     "num": true, "fmt": "int"},
+        {"key": "first_seen",     "label": "First"},
+        {"key": "last_seen",      "label": "Last"},
+        {"key": "next_expected",  "label": "Next"},
+      ],
+      subs
+    ) }}
+  </section>
+{% endblock %}

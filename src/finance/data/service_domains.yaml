@@ -1,0 +1,78 @@
+# Service-domain map for subscription overlap detection.
+#
+# Each key is a domain; values are substrings matched (case-insensitive) against
+# canonical merchant names. First-match-wins. Extend freely — this is data, not
+# code.
+
+streaming:
+  - NETFLIX
+  - DISNEY
+  - HULU
+  - PRIME VIDEO
+  - AMAZON PRIME VIDEO
+  - APPLE TV
+  - HBO
+  - PARAMOUNT
+  - CANAL
+  - MAX
+
+music:
+  - SPOTIFY
+  - APPLE MUSIC
+  - DEEZER
+  - TIDAL
+  - YOUTUBE MUSIC
+  - QOBUZ
+
+cloud:
+  - DROPBOX
+  - GOOGLE ONE
+  - ICLOUD
+  - APPLE.COM/BILL
+  - ONEDRIVE
+  - BOX.COM
+  - AWS
+  - GITHUB
+  - VERCEL
+
+fitness:
+  - BASIC FIT
+  - BASIC-FIT
+  - FITNESS PARK
+  - L'USINE
+  - KEEPCOOL
+  - ONAIR
+  - CROSSFIT
+
+telecom:
+  - FREE MOBILE
+  - FREE TELECOM
+  - ORANGE
+  - SFR
+  - BOUYGUES
+  - SOSH
+
+energy:
+  - EDF
+  - ENGIE
+  - TOTAL ENERGIES
+  - TOTALENERGIES
+  - OCTOPUS
+
+insurance:
+  - MAIF
+  - MACIF
+  - AXA
+  - MATMUT
+  - GROUPAMA
+  - LUKO
+  - ALAN
+
+transport:
+  - NAVIGO
+  - SNCF
+  - UBER
+  - BOLT
+  - BLABLACAR
+  - FREE FLOAT
+  - LIME

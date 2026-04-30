@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Rules — finance{% endblock %}
+{% block content %}
+  <div class="flex items-baseline justify-between mb-4">
+    <h1 class="text-2xl font-semibold">Categorization rules</h1>
+    <div>
+      <button
+        hx-post="/rules/reenrich"
+        hx-target="#reenrich-result"
+        hx-swap="innerHTML"
+        hx-indicator="#reenrich-spinner"
+        hx-disabled-elt="this"
+        class="text-sm px-3 py-1.5 bg-neutral-900 text-white rounded hover:bg-neutral-700"
+      >Re-enrich all transactions</button>
+      <span id="reenrich-spinner" class="htmx-indicator text-sm muted ml-2">running…</span>
+    </div>
+  </div>
+
+  <p class="text-sm muted mb-4">
+    Regex rules are text-matched against merchant names and memos during <code>analyze enrich</code>.
+    First match wins — order matters. Rules are stored at <code>{{ rules_path }}</code>.
+    Changes take effect after the next enrich / re-enrich; use the button above to apply now.
+    User-set and curated categories are never overwritten by rules.
+  </p>
+
+  <div id="reenrich-result" class="mb-4"></div>
+
+  <section class="border border-neutral-200 rounded bg-white overflow-x-auto mb-6">
+    <div id="rules-table">
+      {% include "_rules_table.html" %}
+    </div>
+  </section>
+
+  <section class="border border-neutral-200 rounded bg-white px-4 py-3">
+    <h2 class="text-sm font-semibold text-neutral-600 uppercase tracking-wide mb-3">Add a new rule</h2>
+    <form
+      hx-post="/rules/add"
+      hx-target="#rules-table"
+      hx-swap="innerHTML"
+      hx-on::after-request="if(event.detail.successful) this.reset()"
+      class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end"
+    >
+      <label class="sm:col-span-7">
+        <div class="text-xs muted mb-1">Regex (prefix with <code>(?i)</code> for case-insensitive)</div>
+        <input name="match" type="text"
+               placeholder="(?i)netflix|spotify|youtube music"
+               class="w-full border rounded px-2 py-1 text-sm font-mono"
+               required>
+      </label>
+      <label class="sm:col-span-3">
+        <div class="text-xs muted mb-1">Category</div>
+        <select name="category" required
+                class="w-full border rounded px-2 py-1 text-sm bg-white">
+          <option value="" disabled selected>pick one…</option>
+          {% for c in taxonomy %}
+            <option value="{{ c }}">{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="sm:col-span-2">
+        <button type="submit"
+                class="w-full text-sm px-3 py-1.5 bg-violet-700 text-white rounded hover:bg-violet-600">
+          Add rule
+        </button>
+      </div>
+    </form>
+    <p class="text-xs muted mt-3">
+      Tip: after adding a rule, click <strong>Re-enrich</strong> above so existing transactions pick it up.
+    </p>
+  </section>
+{% endblock %}
