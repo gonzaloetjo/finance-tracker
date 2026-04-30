@@ -195,12 +195,12 @@ for r in c.execute('SELECT kind, COUNT(*), SUM(input_tokens), SUM(output_tokens)
 "
 ```
 
-The `cache_read_tokens` / `cache_creation_tokens` columns exist in the schema
-and are populated from the SDK response, but in practice they have been zero
-— our system prompts are below Anthropic's per-block cache minimum
-(~1 024 tokens on Haiku, ~2 048 on Sonnet), so the API silently ignores the
-`cache_control: ephemeral` marker. The marker has been removed; the columns
-stay for forward compatibility in case prompts grow past the threshold.
+Prompt caching is not used: this repo's system prompts are below Anthropic's
+per-block cache minimum (~1 024 tokens on Haiku, ~2 048 on Sonnet), so the
+API would silently ignore any `cache_control: ephemeral` marker. The marker
+and the previously-tracked `cache_read_tokens` / `cache_creation_tokens`
+schema columns were removed once telemetry across ~100 LLM runs confirmed
+zero cache hits.
 
 ## Troubleshooting
 
