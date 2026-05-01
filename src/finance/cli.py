@@ -229,6 +229,8 @@ def sync(
         else:
             typer.echo(f"  {r.account_uid[:8]}…  ERROR: {r.error}", err=True)
     typer.echo(f"\n{total} new transaction(s)")
+    if any(r.status == "error" for r in results):
+        raise typer.Exit(code=1)
 
 
 @app.command("list")

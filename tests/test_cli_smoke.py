@@ -86,3 +86,35 @@ def test_label_writes_tx_override(cli_db) -> None:
     row = conn.execute("SELECT category FROM tx_overrides WHERE tx_id = ?", (tx_id,)).fetchone()
     assert row is not None, "label command didn't persist a tx_overrides row"
     assert row["category"] == "Dining"
+
+
+def test_sync_exits_nonzero_when_any_account_errors(cli_db, monkeypatch) -> None:
+    """`finance sync` previously echoed errors to stderr but exited 0,
+    which let cron / systemd think the run succeeded. Tier N: exit 1 if
+    any account ended in `status='error'`.
+    """
+    from contextlib import nullcontext
+
+    conn, _db_path = cli_db
+    _seed_session_and_account(conn)
+
+    from finance import cli as cli_module
+    from finance.sync import SyncResult
+
+    def fake_sync_all_accounts(*_args, **_kwargs):
+        return [
+            SyncResult(
+                account_uid="acct-1", added=0, fetched=0,
+                status="error", error="EB 401 unauthorized",
+            )
+        ]
+
+    # Bypass the real EB client load (avoids the keypair/passphrase prompt)
+    # and the actual sync — the CLI calls both via the imported symbols in
+    # `finance.cli`.
+    monkeypatch.setattr(cli_module, "sync_all_accounts", fake_sync_all_accounts)
+    monkeypatch.setattr(cli_module, "_load_client", lambda *_a, **_k: nullcontext())
+
+    result = CliRunner().invoke(app, ["sync"])
+    assert result.exit_code == 1, f"expected nonzero exit; got 0:\n{result.output}"
+    assert "ERROR" in result.output or "EB 401" in result.output

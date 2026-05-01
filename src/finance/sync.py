@@ -149,8 +149,21 @@ def sync_all_accounts(
     # are not applied during fetch.
     any_added = any(r.added > 0 for r in results if r.status == "ok")
     if any_added:
+        import sys
+
         from finance.analysis.enrich import enrich_transactions
 
-        enrich_transactions(conn, rules=rules)
+        # Sync rows are already committed per-account by `sync_account`. If
+        # auto-enrich raises here, surface a recovery hint to stderr instead
+        # of a full traceback — the user can re-run `finance analyze enrich`
+        # without losing the fetched transactions.
+        try:
+            enrich_transactions(conn, rules=rules)
+        except Exception as e:  # noqa: BLE001
+            print(
+                f"sync: auto-enrich failed ({e!r}) — "
+                "run 'finance analyze enrich' manually",
+                file=sys.stderr,
+            )
 
     return results

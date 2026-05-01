@@ -125,21 +125,33 @@ def enrich_transactions(
         if parsed.merchant_raw:
             merchant_id = normalize_merchant(parsed.merchant_raw, conn)
 
-            # Classify the merchant (writes to merchants table)
-            canonical = conn.execute(
+            # Classify the merchant (writes to merchants table). Defensive
+            # guard: `normalize_merchant` just inserted/looked up this row,
+            # so it should always be present — but if a future bug or
+            # concurrent state drops it, skip classification rather than
+            # crashing the whole batch and losing every other tx_enrichment
+            # write in this transaction.
+            row = conn.execute(
                 "SELECT canonical_name FROM merchants WHERE merchant_id = ?",
                 (merchant_id,),
-            ).fetchone()[0]
-            cat, _src = classify_merchant(
-                merchant_id,
-                canonical,
-                conn,
-                rules=rules,
-                rules_path=rules_path,
-                seed_overrides=seed_overrides,
-            )
-            if cat:
-                classified_count += 1
+            ).fetchone()
+            if row is None:
+                summary.errors.append(
+                    f"merchant_id {merchant_id} vanished mid-batch (skipping tx {tx_id})"
+                )
+                merchant_id = None
+            else:
+                canonical = row["canonical_name"]
+                cat, _src = classify_merchant(
+                    merchant_id,
+                    canonical,
+                    conn,
+                    rules=rules,
+                    rules_path=rules_path,
+                    seed_overrides=seed_overrides,
+                )
+                if cat:
+                    classified_count += 1
 
         # Upsert tx_enrichment
         conn.execute(

@@ -189,3 +189,51 @@ def test_transaction_without_id_gets_stable_hash_key(conn):
 
     assert r1.added == 1
     assert r2.added == 0  # hash-based key still dedupes
+
+
+def test_sync_all_accounts_logs_enrich_failure_and_continues(conn, monkeypatch, capsys):
+    """If auto-enrich raises, sync_all_accounts must still return its sync
+    results and surface a recovery hint to stderr — sync_account already
+    committed per-account, so the data is on disk and a manual
+    `finance analyze enrich` will recover the merchant layer.
+    """
+    from finance.sync import sync_all_accounts
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("simulated enrich crash")
+
+    monkeypatch.setattr("finance.analysis.enrich.enrich_transactions", boom)
+
+    def handler(_req):
+        return httpx.Response(
+            200,
+            json={
+                "transactions": [
+                    {
+                        "transaction_id": "tx-en-1",
+                        "transaction_amount": {"currency": "EUR", "amount": "5.00"},
+                        "credit_debit_indicator": "DBIT",
+                        "booking_date": "2026-03-01",
+                        "creditor": {"name": "Test Merchant"},
+                    }
+                ],
+                "continuation_key": None,
+            },
+        )
+
+    with _make_client(handler) as client:
+        results = sync_all_accounts(conn, client)
+
+    # sync_account succeeded for the seeded account; the enrich crash
+    # surfaced to stderr and was suppressed.
+    assert len(results) == 1
+    assert results[0].status == "ok"
+    assert results[0].added == 1
+    captured = capsys.readouterr()
+    assert "auto-enrich failed" in captured.err
+    assert "simulated enrich crash" in captured.err
+    # The transaction is on disk for a manual re-enrich to find.
+    row = conn.execute(
+        "SELECT transaction_id FROM transactions WHERE transaction_id = 'tx-en-1'"
+    ).fetchone()
+    assert row is not None
