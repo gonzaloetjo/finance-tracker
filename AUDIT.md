@@ -7,6 +7,15 @@ fix commit(s); the sha of the fix commit is recorded under `Changes`.
 Ephemeral in-session progress lives in Claude Code's task list; this file
 is the durable counterpart.
 
+> **Note on commit shas in this public mirror.** The shas referenced
+> throughout this document point to the original private development
+> repository, where the full per-tier commit history lives. The public
+> mirror was created as a single squashed `Initial public release.`
+> commit, so most historical shas (Tiers A–M) cannot be browsed in this
+> repo's history. Tier N onward continues development directly in the
+> public repo, but its tier sections still cite the private shas as the
+> canonical reference for cross-document continuity.
+
 ---
 
 ## Pass 1 — hygiene (ruff + pytest + coverage)

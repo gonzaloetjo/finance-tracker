@@ -5,6 +5,13 @@ via Enable Banking, SQLite store, Typer CLI + FastAPI dashboard on localhost,
 Anthropic LLM layer for categorization + advisories. Python 3.11+, managed
 with `uv`.
 
+> **History.** This is the public-mirror working tree. The full per-tier
+> commit history (Tiers A–M, every refactor with rationale + verification)
+> lives in the private development repo at
+> `https://github.com/gonzaloetjo/finance` — not on this remote. If you
+> need to trace why a decision was made, reach for that repo's
+> `AUDIT.md` and `git log`. Active development continues here.
+
 ## Dev workflow
 
 Every command is prefixed with `uv run` (virtualenv-managed via `uv sync`):
