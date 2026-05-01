@@ -23,7 +23,7 @@ uv run pip-audit --skip-editable                      # CVE check on locked deps
 CLI entry point is `finance`:
 
 ```
-uv run finance overview                  # one-shot dashboard snapshot
+uv run finance analyze overview          # one-shot dashboard snapshot
 uv run finance analyze enrich --reenrich # canonical recategorize path
 uv run finance serve                     # dashboard at http://localhost:8000
 ```

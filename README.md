@@ -27,6 +27,7 @@ After the consent flow, sync transactions:
 
 ```bash
 uv run finance sync
+uv run finance analyze enrich            # build merchants + categories from the synced txs
 uv run finance list --since 2026-01-01
 ```
 
