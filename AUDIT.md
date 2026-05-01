@@ -901,3 +901,76 @@ convention. This Tier M note is the live reference.
 fix version published yet, same status as Tier K). Otherwise the
 verification suite is clean: 207 / 207 tests pass after every
 sub-commit; mypy / vulture / ruff non-deferred clean throughout.
+
+---
+
+## Tier N — post-creative-agent fixes
+
+Three Explore agents (UX / fragility / test-coverage) reviewed the
+post-Tier-M repo for "what could be better without over-engineering."
+Synthesized output: ~21 candidate items. Honest filtering against the
+over-engineering smell (defensive code for hypothetical failures,
+cosmetic polish, tests for code that's already fine) cut that to 6
+items. A spot-verification dropped one further: the agent's "weekly
+subscription cost understated 4.3×" was a **false positive** —
+`find_subscriptions` (`subscriptions.py:230`) filters to
+`classification IN ('monthly', 'quarterly', 'annual')`, so the
+fallthrough at `subscriptions.py:180` is unreachable dead code, not
+a live bug. Real Tier N is 5 items, three of which are behavioural
+fixes and two are doc fixes.
+
+### Findings
+
+1. **`finance sync` exits 0 even when every account errored**
+   (`cli.py:225-231`). A user wrapping `finance sync` in cron /
+   systemd sees "success" while data has stopped flowing. Errors
+   echoed to stderr, but the process never raised.
+2. **`enrich_transactions` exception inside `sync_all_accounts`
+   escapes unhandled** (`sync.py:151-156`). `sync_account` already
+   committed per-account, so the fetched transactions were durable;
+   but a crash in the auto-enrich call surfaced as an unhandled
+   traceback exit 1, with no `sync_runs` "error" row to indicate
+   what went wrong.
+3. **Unguarded `fetchone()[0]` in `enrich.py:128-132`.**
+   `normalize_merchant` always inserts the row immediately before
+   the canonical-name query, so this never returns `None` today —
+   but if it ever does, the unguarded `[0]` IndexErrors out of the
+   entire `enrich_transactions` call, silently rolling back every
+   other tx_enrichment write in the batch. Defensive, theoretical
+   today, low cost.
+4. **README quick-start omits `analyze enrich`** between `sync`
+   and `list` (`README.md:24-31`). First-time user sees an
+   unenriched dashboard on first `analyze overview` and thinks the
+   tool is broken.
+5. **`CLAUDE.md:26` references `finance overview`** which doesn't
+   exist. Real command is `finance analyze overview`.
+
+### Decisions
+
+Three commits in canonical, then the same 5 fixes propagate to the
+public mirror. Behaviour fixes (1+2+3) bundle into one commit
+because they share a verification path; docs (4+5) ship together;
+audit doc is its own commit per convention.
+
+### Changes (canonical shas, mirrored 1:1 here)
+- Behaviour: `8a7e5e6` — `fix(sync+enrich): exit code on error,
+  wrap auto-enrich, defensive guard`. Items 1 + 2 + 3, plus two new
+  tests. 203 / 203 tests pass; mypy / vulture / ruff non-deferred
+  clean.
+- Docs: `27097b0` — `docs(readme+claude): fix overview command +
+  add enrich to quick-start`. Items 4 + 5.
+
+### Verified-out (skipped after honest filtering)
+
+- ~~Weekly subscription cost understatement~~ — false positive.
+- `import-key --delete/--keep` flip — security-incorrect.
+- `enrich_transactions` `conn.commit()` inside outer `with conn:` —
+  design-smell, not actively breaking.
+- Dashboard active-page nav highlight — pure cosmetic.
+- `sessions ls` account-count column — N+1 query, polish.
+- `streams.py` malformed-date logging, NaT booking-date `dropna`,
+  forecast non-ISO date handling — all defending against
+  hypothetical EB output not seen in practice.
+- Various agent test-coverage suggestions — would test code paths
+  that are fine; only the two tests bundled with items 1 + 2 above
+  are warranted.
