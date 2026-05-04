@@ -288,12 +288,10 @@ def test_top_merchants_spend_only_honors_flag(tmp_path):
             " VALUES ('checking', 's1', 'FR1', 'Checking', 'EUR', 'CACC', '{}', 0),"
             "        ('savings',  's1', 'FR2', 'Savings',  'EUR', 'CACC', '{}', 1)"
         )
-        for i, (tid, acc, amt) in enumerate(
-            [
-                ("c1", "checking", -25.0),
-                ("s1", "savings", -100.0),
-            ]
-        ):
+        for tid, acc, amt in [
+            ("c1", "checking", -25.0),
+            ("s1", "savings", -100.0),
+        ]:
             conn.execute(
                 "INSERT INTO transactions (transaction_id, account_uid, booking_date, amount, currency,"
                 " remittance_info, raw_json, fetched_at)"

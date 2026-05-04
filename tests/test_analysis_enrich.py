@@ -78,7 +78,7 @@ def test_enrich_idempotent_second_run(tmp_path):
     with connect(tmp_path / "x.db") as conn:
         init_schema(conn)
         _seed_raw(conn)
-        s1 = enrich_transactions(conn)
+        enrich_transactions(conn)
         s2 = enrich_transactions(conn)
         assert s2.newly_enriched == 0  # nothing new
         assert s2.already_enriched == 5

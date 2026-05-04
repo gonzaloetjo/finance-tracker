@@ -53,6 +53,20 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+# Rules explicitly accepted as deferred-noise per AUDIT.md Pass 1 + CLAUDE.md
+# ("don't sprinkle noqa on them; accept as-is"):
+# - E501  long-line — surviving long lines are SQL / URLs / prompt strings
+#         that ruff format can't break.
+# - SIM105 try/except/pass — fine when the surrounding context makes it the
+#         clearer expression of "ignore this specific class of failure".
+# - SIM108 if-else → ternary — stylistic; current `if`/`else` blocks read
+#         clearer where the assignment branches are non-trivial.
+# - SIM117 nested `with` — flagged in test fixtures where a flat
+#         `with patch(...), pytest.raises(...):` would compress two
+#         setup concerns into one line, hurting readability.
+# - E402  module-level import not at top — intentional in modules that use
+#         late imports as a structural separator (see subscriptions.py:196).
+ignore = ["E501", "SIM105", "SIM108", "SIM117", "E402"]
 
 [tool.mypy]
 # Third-party packages without type stubs. Installing `types-PyYAML` +
