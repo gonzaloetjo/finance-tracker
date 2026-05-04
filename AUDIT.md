@@ -983,3 +983,61 @@ audit doc is its own commit per convention.
 - Various agent test-coverage suggestions — would test code paths
   that are fine; only the two tests bundled with items 1 + 2 above
   are warranted.
+
+---
+
+## Tier O — verified audit-report triage
+
+Reviewed the local `audit-reports/*.md` files against the current public
+tree instead of treating them as source of truth. Several report claims
+were already fixed or superseded by this append-only audit log
+(`CLAUDE.md` overview command, `.env.example` passphrase warning,
+cache / recategorize cleanup, weekly subscription savings). The live
+issues were correctness/security/doc/test-harness items.
+
+### Findings
+
+1. **Overview MTD + monthly chart ignored excluded accounts**
+   (`store.month_to_date_totals`, `store.monthly_series`). The header
+   totals used spend-only analysis, while dashboard MTD/monthly still
+   counted savings / investment accounts.
+2. **LLM categorize could overwrite regex-rule categories**
+   (`llm/categorize.py`). `category_source='rule'` rows were selected
+   for LLM categorization and allowed through the auto-write guard.
+3. **JWT bearer assertions lacked `jti`** (`auth/jwt.py`). Tokens were
+   reusable for their full TTL if intercepted.
+4. **Enable Banking error strings embedded raw response bodies**
+   (`eb/client.py`). Long bodies and account identifiers could be
+   copied into terminal logs.
+5. **Dashboard DB helper did not close connections** and
+   `merchants_page` opened three connections for one request.
+6. **Dead store helpers referenced removed `transactions.category`**
+   (`top_categories`, `recent_transactions`).
+7. **README was stale** on web LLM buttons, route table, phase labels,
+   subscription category gate wording, and spend-only defaults.
+8. **Starlette `TestClient` hung in this environment** on web route
+   tests. Route logic itself passed through direct ASGI execution.
+
+### Changes
+
+- `aa610b0` — `fix(audit): address verified correctness and security findings`.
+  Added spend-only filtering to dashboard aggregate helpers; preserved
+  rule/curated/user category precedence in LLM categorize; added JWT
+  `jti`; redacted/truncated EB error bodies; removed the unused
+  category-column store helpers; made dashboard DB usage close via
+  `store.open_db`; consolidated the merchant-page DB work; cleaned
+  live `streams.py` SIM findings; updated README; replaced web tests'
+  `TestClient` usage with a small `httpx.ASGITransport` wrapper.
+
+### Verification
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` — 207 / 207 passing.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check . --select SIM,UP,B,F,I` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run mypy src/finance` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run vulture src/finance --min-confidence 80` — clean.
+
+### Local scratch reports
+
+`audit-reports/` was untracked local scratch output. It was removed
+after the verified fixes landed; `AUDIT.md` remains the durable source
+of audit history.
