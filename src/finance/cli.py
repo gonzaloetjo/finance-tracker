@@ -1194,7 +1194,7 @@ def accounts_ls() -> None:
     with _open_db() as conn:
         rows = conn.execute(
             """
-            SELECT a.account_uid, a.name, a.iban, a.currency, a.excluded_from_spend,
+            SELECT a.account_uid, a.name, a.currency, a.excluded_from_spend,
                    s.aspsp_name,
                    (SELECT COUNT(*) FROM transactions t WHERE t.account_uid = a.account_uid) AS n_tx
             FROM accounts a

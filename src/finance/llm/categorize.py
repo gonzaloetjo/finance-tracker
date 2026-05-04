@@ -2,14 +2,14 @@
 
 Pipeline:
   1. Query merchants with `category IS NULL` (or where `category_source` is
-     not in {'user'}).
+     already `llm`).
   2. For each, gather up to 3 example memos.
   3. One structured-output LLM call returns (category, confidence, reasoning).
   4. Confidence-gated auto-write: ≥ 0.90 writes to merchants.category with
      `source='llm'`; `< 0.90` surfaces in a candidates table.
 
-User overrides are preserved: source='user' merchants are never included in
-the query, and re-running is a no-op once the DB is fully categorized.
+User, curated, and rule-based categories are preserved; the LLM only fills
+empty merchants or refreshes its own prior assignments.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def collect_uncategorized(
     *,
     limit: int = 150,
 ) -> list[MerchantInput]:
-    """Merchants whose category is NULL OR whose source isn't 'user'/'curated'.
+    """Merchants whose category is NULL or already LLM-sourced.
 
     Ordered by total outflow (biggest spend first) so a --limit cut still
     covers the highest-value merchants.
@@ -80,7 +80,7 @@ def collect_uncategorized(
         LEFT JOIN tx_enrichment e ON e.merchant_id = m.merchant_id
         LEFT JOIN transactions t  ON t.transaction_id = e.tx_id
         WHERE (m.category IS NULL
-               OR m.category_source NOT IN ('user', 'curated'))
+               OR m.category_source = 'llm')
         GROUP BY m.merchant_id
         ORDER BY spend DESC
         LIMIT ?
@@ -277,7 +277,7 @@ def _apply_proposals(
                        updated_at = ?
                  WHERE merchant_id = ?
                    AND (category_source IS NULL
-                        OR category_source IN ('curated', 'rule', 'llm'))
+                        OR category_source = 'llm')
                 """,
                 (proposal.category, proposal.confidence, now, mid),
             )

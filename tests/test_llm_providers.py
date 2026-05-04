@@ -110,14 +110,15 @@ def test_claude_cli_nonzero_exit_raises():
     with _with_claude_available():
         provider = ClaudeCLIProvider()
 
-    with patch("subprocess.run", _fake_run("", returncode=1)):
-        with pytest.raises(ClaudeCLIError, match="exited 1"):
-            provider.parse_structured(
-                model="test",
-                system="sys",
-                user="u",
-                schema=_Tiny,
-            )
+    with patch("subprocess.run", _fake_run("", returncode=1)), pytest.raises(
+        ClaudeCLIError, match="exited 1"
+    ):
+        provider.parse_structured(
+            model="test",
+            system="sys",
+            user="u",
+            schema=_Tiny,
+        )
 
 
 def test_claude_cli_timeout_raises():

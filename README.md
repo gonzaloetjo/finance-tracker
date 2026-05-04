@@ -56,7 +56,7 @@ scripts/finance-all.sh --sync --llm --serve
 
 Use this when you want to eyeball the full picture without remembering every subcommand. Each section is clearly labeled — scroll through the output top to bottom.
 
-## Web dashboard (Phase 8)
+## Web dashboard
 
 Start it:
 
@@ -79,9 +79,13 @@ Routes — everything structural is navigable:
 | `/advice`                   | Persisted LLM advice cards (generate via `finance advise ...`). Dismiss with the × button. |
 | `/accounts`                 | Account list with a toggle to flag `excluded_from_spend`. |
 | `/transactions`             | Full transaction list with a date filter. |
+| `/rules`                    | Manage regex categorization rules, then re-enrich. |
+| `/settings`                 | Anthropic API key status + LLM usage totals. Store an API key here without the CLI. |
 | `/connect` / `/callback`    | Enable Banking consent flow. |
 
-LLM trigger buttons are **not** exposed in the web UI — all `finance advise ...` and `finance enrich llm-categorize` runs happen from the CLI to keep cost visible.
+LLM categorization can be triggered from the **Uncategorized** merchant page
+(`/merchants?uncategorized=true`) as well as from the CLI. `finance advise ...`
+advisory runs are CLI-only.
 
 ## Accounts + sessions
 
@@ -94,10 +98,12 @@ uv run finance sessions rm <session_id> [--force]      # cascade delete (tx/bala
 ```
 
 Flag a joint savings / investment account with `accounts exclude` so it
-doesn't pollute spending totals. Then pass `--spend-only` to `analyze trends`
-(other analyses are stream-based and span accounts by merchant).
+doesn't pollute spending totals. The web overview and `analyze totals` use
+spend-only mode by default; pass `--include-all` to totals or clear the web
+toggle to include every account. For `analyze overview`, `analyze trends`, and
+`analyze merchants`, pass `--spend-only` explicitly.
 
-## Enrichment & analyses (Phase 6)
+## Enrichment & analyses
 
 After transactions are synced, persist a merchant/stream/category layer on top:
 
@@ -109,12 +115,12 @@ uv run finance analyze enrich --reenrich   # full reprocess (preserves user over
 Read-only analyses (all accept `--csv` / `--json` for piping, unless noted):
 
 ```bash
-uv run finance analyze overview [--months 3] [--top 15] [--spend-only]   # full dashboard
-uv run finance analyze totals [--months 3] [--spend-only/--include-all]  # headline rollups
+uv run finance analyze overview [--months 3] [--top 15] [--spend-only]   # full dashboard; default off
+uv run finance analyze totals [--months 3] [--spend-only/--include-all]  # headline rollups; default on
 uv run finance analyze merchants [--top 30] [--uncategorized] [--spend-only]
 uv run finance analyze recurring [--active-only]
 uv run finance analyze subscriptions [--overlaps]
-uv run finance analyze trends [--months 6] [--growth] [--spend-only]
+uv run finance analyze trends [--months 6] [--growth] [--spend-only]     # default off
 uv run finance analyze forecast [--days 30]
 uv run finance analyze alerts [--threshold 500] [--stopped]
 uv run finance analyze merchant <canonical_or_alias>                     # zoom-in on one merchant
@@ -133,7 +139,7 @@ uv run finance merchant review [--limit 20] [--include-rule]   # wizard, writes 
 uv run finance enrich llm-categorize                           # auto via Anthropic
 ```
 
-**Subscription detection** is structural (recurring + monthly cadence + stable amount) but category-gated: merchants tagged `Dining`, `Groceries`, `Transport`, `Entertainment`, `Income`, or `Transfer` are NEVER flagged as subscriptions, even when the structural rule matches (prevents false positives like weekly food orders).
+**Subscription detection** is structural (recurring + monthly cadence + stable amount) but category-gated: merchants tagged `Dining`, `Groceries`, `Income`, `Transfer`, or `Investment` are NEVER flagged as subscriptions, even when the structural rule matches (prevents false positives like weekly food orders).
 
 **`overview`** composes all of the above into one page — start here when you want a general picture. The individual commands remain for piping / scripting. **`merchants`** (plural) is the cross-merchant ranked table; **`merchant`** (singular) is the zoom-in.
 
@@ -149,9 +155,9 @@ uv run finance merchant apply-merges [--dry-run]       # curated src/finance/dat
 uv run finance merchant seed-top [--limit 20]          # interactive curation of top uncategorized
 ```
 
-Category precedence (highest wins): `tx_overrides` → `merchants.category` with `source='user'` → curated seed YAML → regex rules → LLM (Phase 7) → NULL.
+Category precedence (highest wins): `tx_overrides` → `merchants.category` with `source='user'` → curated seed YAML → regex rules → LLM → NULL.
 
-## LLM categorization + advisory (Phase 7)
+## LLM categorization + advisory
 
 One-time: give it an API key:
 

@@ -6,10 +6,12 @@ stream_id is IMMUTABLE: sha1(merchant_id + flat ±15% band bucket)[:16].
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import math
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from statistics import median, stdev
 
 from finance.taxonomy import assert_subset_of_taxonomy
@@ -65,8 +67,6 @@ def _band_bucket(amount: float) -> int:
     Amounts within ±15% of each other map to the same bucket.
     The bucket key is floor(log_{1+2*w}(|amount|)).
     """
-    import math
-
     abs_amt = abs(amount) if amount != 0 else 0.01
     base = 1 + 2 * _BAND_WIDTH  # 1.30
     return int(math.floor(math.log(abs_amt, base)))
@@ -150,14 +150,10 @@ def group_streams(conn: sqlite3.Connection) -> list[StreamInfo]:
         median_days_val: float | None = None
         reg = 0.0
         if len(dates) >= 2:
-            from datetime import date as _date
-
             parsed = []
             for d in dates:
-                try:
-                    parsed.append(_date.fromisoformat(d[:10]))
-                except (ValueError, TypeError):
-                    pass
+                with contextlib.suppress(ValueError, TypeError):
+                    parsed.append(date.fromisoformat(d[:10]))
             if len(parsed) >= 2:
                 diffs = [(parsed[i + 1] - parsed[i]).days for i in range(len(parsed) - 1)]
                 diffs = [d for d in diffs if d > 0]
@@ -215,20 +211,15 @@ def group_streams(conn: sqlite3.Connection) -> list[StreamInfo]:
             (sid,),
         ).fetchone()
         override = override_row[0] if override_row else None
-        if override is None:
-            is_sub = computed_sub
-        else:
-            is_sub = bool(override)
+        is_sub = computed_sub if override is None else bool(override)
 
         first_seen = dates[0] if dates else now
         last_seen = dates[-1] if dates else now
 
         # Active check
-        from datetime import date as _date
-
         try:
-            ls = _date.fromisoformat(str(last_seen)[:10])
-            days_since = (_date.today() - ls).days
+            ls = date.fromisoformat(str(last_seen)[:10])
+            days_since = (date.today() - ls).days
             active = median_days_val is not None and days_since < 1.5 * median_days_val
         except (ValueError, TypeError):
             active = False
@@ -300,13 +291,11 @@ def group_streams(conn: sqlite3.Connection) -> list[StreamInfo]:
 
 
 def _span_days(dates: list[str]) -> int:
-    from datetime import date as _date
-
     if len(dates) < 2:
         return 0
     try:
-        d0 = _date.fromisoformat(dates[0][:10])
-        d1 = _date.fromisoformat(dates[-1][:10])
+        d0 = date.fromisoformat(dates[0][:10])
+        d1 = date.fromisoformat(dates[-1][:10])
         return (d1 - d0).days
     except (ValueError, TypeError):
         return 0

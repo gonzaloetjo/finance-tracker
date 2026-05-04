@@ -70,7 +70,7 @@ def create_app(state: AppState) -> FastAPI:
         return store.connect(state.db_path)
 
     @app.get("/connect", response_class=HTMLResponse)
-    def connect_page(request: Request, country: str = "FR"):
+    async def connect_page(request: Request, country: str = "FR"):
         try:
             with state.client_factory() as client:
                 aspsps = list_aspsps(client, country=country)
@@ -83,7 +83,7 @@ def create_app(state: AppState) -> FastAPI:
         )
 
     @app.post("/connect")
-    def connect_submit(aspsp_name: str = Form(...), aspsp_country: str = Form(...)):
+    async def connect_submit(aspsp_name: str = Form(...), aspsp_country: str = Form(...)):
         auth_state = secrets.token_urlsafe(32)
         with state.client_factory() as client:
             resp = start_auth(
@@ -97,7 +97,7 @@ def create_app(state: AppState) -> FastAPI:
         return RedirectResponse(resp.url, status_code=303)
 
     @app.get("/callback", response_class=HTMLResponse)
-    def callback(
+    async def callback(
         request: Request,
         code: str | None = None,
         error: str | None = None,
@@ -124,14 +124,14 @@ def create_app(state: AppState) -> FastAPI:
         return RedirectResponse("/", status_code=303)
 
     @app.post("/sync", response_class=HTMLResponse)
-    def sync_now(request: Request):
+    async def sync_now(request: Request):
         with state.client_factory() as client, store.connect(state.db_path) as conn:
             store.init_schema(conn)
             results = sync_all_accounts(conn, client, rules=state.rules)
         return templates.TemplateResponse(request, "_sync_result.html", {"results": results})
 
     @app.get("/transactions", response_class=HTMLResponse)
-    def transactions_page(request: Request, since: str | None = None, limit: int = 100):
+    async def transactions_page(request: Request, since: str | None = None, limit: int = 100):
         from datetime import date as _date
         from datetime import timedelta as _td
 
@@ -153,7 +153,7 @@ def create_app(state: AppState) -> FastAPI:
         )
 
     @app.get("/accounts", response_class=HTMLResponse)
-    def accounts_page(request: Request):
+    async def accounts_page(request: Request):
         with db() as conn:
             store.init_schema(conn)
             rows = conn.execute(

@@ -7,12 +7,12 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
-from fastapi.testclient import TestClient
 
 from finance.analysis.enrich import enrich_transactions
 from finance.db import store
 from finance.llm.advise import persist_advice
 from finance.web.app import AppState, create_app
+from tests.web_client import ASGITestClient
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def dashboard_client(tmp_path):
         callback_url="http://localhost:8000/callback",
     )
     app = create_app(state)
-    return TestClient(app, follow_redirects=False), state
+    return ASGITestClient(app, follow_redirects=False), state
 
 
 @pytest.fixture

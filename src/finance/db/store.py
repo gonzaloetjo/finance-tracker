@@ -57,7 +57,12 @@ def open_db(db_path: Path) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-_ALLOWED_MIGRATION_TABLES = frozenset({"accounts", "streams"})
+_ALLOWED_MIGRATIONS = frozenset(
+    {
+        ("accounts", "excluded_from_spend", "INTEGER NOT NULL DEFAULT 0"),
+        ("streams", "subscription_override", "INTEGER"),
+    }
+)
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -65,8 +70,10 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
     # parameterized, so the table/column/definition are interpolated directly.
     # Keep the inputs locked to a known set so this stays injection-safe even
     # if a future caller ever passes through user input by accident.
-    if table not in _ALLOWED_MIGRATION_TABLES:
-        raise ValueError(f"_ensure_column refuses unknown table: {table!r}")
+    if (table, column, definition) not in _ALLOWED_MIGRATIONS:
+        raise ValueError(
+            f"_ensure_column refuses unknown migration: {(table, column, definition)!r}"
+        )
     cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
     if column not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
@@ -124,18 +131,31 @@ def list_sessions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def month_to_date_totals(conn: sqlite3.Connection) -> dict[str, float]:
+def _spend_only_join_where(spend_only: bool) -> tuple[str, str]:
+    if not spend_only:
+        return "", ""
+    return (
+        "JOIN accounts a ON a.account_uid = t.account_uid",
+        "AND COALESCE(a.excluded_from_spend, 0) = 0",
+    )
+
+
+def month_to_date_totals(conn: sqlite3.Connection, *, spend_only: bool = True) -> dict[str, float]:
     """Return {spent, income, net} for the current calendar month."""
     from datetime import date
 
     today = date.today()
     start = today.replace(day=1).isoformat()
+    join_sql, spend_filter = _spend_only_join_where(spend_only)
     row = conn.execute(
-        """
+        f"""
         SELECT
-          COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) AS spent,
-          COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS income
-        FROM transactions WHERE booking_date >= ?
+          COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0) AS spent,
+          COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0) AS income
+        FROM transactions t
+        {join_sql}
+        WHERE t.booking_date >= ?
+          {spend_filter}
         """,
         (start,),
     ).fetchone()
@@ -144,50 +164,28 @@ def month_to_date_totals(conn: sqlite3.Connection) -> dict[str, float]:
     return {"spent": spent, "income": income, "net": income - spent}
 
 
-def monthly_series(conn: sqlite3.Connection, months: int = 6) -> list[dict[str, Any]]:
+def monthly_series(
+    conn: sqlite3.Connection,
+    months: int = 6,
+    *,
+    spend_only: bool = True,
+) -> list[dict[str, Any]]:
     """Return per-month aggregates for the last N months, oldest first."""
+    join_sql, spend_filter = _spend_only_join_where(spend_only)
     rows = conn.execute(
-        """
+        f"""
         SELECT
-          strftime('%Y-%m', booking_date) AS month,
-          SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END) AS spent,
-          SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS income
-        FROM transactions
-        WHERE booking_date >= date('now', ? )
+          strftime('%Y-%m', t.booking_date) AS month,
+          SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS spent,
+          SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS income
+        FROM transactions t
+        {join_sql}
+        WHERE t.booking_date >= date('now', ? )
+          {spend_filter}
         GROUP BY month
         ORDER BY month
         """,
         (f"-{months} months",),
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def top_categories(conn: sqlite3.Connection, since: str, limit: int = 8) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        """
-        SELECT
-          COALESCE(category, 'Uncategorized') AS category,
-          SUM(-amount) AS spent
-        FROM transactions
-        WHERE amount < 0 AND booking_date >= ?
-        GROUP BY COALESCE(category, 'Uncategorized')
-        ORDER BY spent DESC
-        LIMIT ?
-        """,
-        (since, limit),
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def recent_transactions(conn: sqlite3.Connection, limit: int = 10) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        """
-        SELECT booking_date, amount, currency, creditor_name, debtor_name, remittance_info, category
-        FROM transactions
-        ORDER BY booking_date DESC, rowid DESC
-        LIMIT ?
-        """,
-        (limit,),
     ).fetchall()
     return [dict(r) for r in rows]
 

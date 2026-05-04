@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 from finance.analysis.enrich import enrich_transactions
 from finance.analysis.totals import Totals, compute_totals
+from finance.db import store
 from finance.db.store import connect, init_schema
 
 
@@ -138,3 +139,38 @@ def test_totals_category_breakdown(tmp_path):
         assert "Dining" in t.spend_by_category
         assert abs(t.spend_by_category["Groceries"] - 20.0) < 0.01  # 60 / 3
         assert abs(t.spend_by_category["Dining"] - 13.33) < 0.1  # 40 / 3
+
+
+def test_store_dashboard_aggregates_respect_spend_only_accounts(tmp_path):
+    with connect(tmp_path / "x.db") as conn:
+        init_schema(conn)
+        conn.execute(
+            "INSERT INTO sessions (session_id, aspsp_name, aspsp_country, valid_until, created_at)"
+            " VALUES ('s1', 'BNP Paribas', 'FR', '2099-01-01', '2026-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO accounts (account_uid, session_id, iban, name, currency, account_type,"
+            " raw_json, excluded_from_spend)"
+            " VALUES ('checking', 's1', 'FR1', 'Checking', 'EUR', 'CACC', '{}', 0),"
+            "        ('savings',  's1', 'FR2', 'Savings',  'EUR', 'CACC', '{}', 1)"
+        )
+        today = date.today().isoformat()
+        conn.execute(
+            "INSERT INTO transactions (transaction_id, account_uid, booking_date, amount, currency,"
+            " remittance_info, raw_json, fetched_at)"
+            " VALUES ('spend', 'checking', ?, -40.0, 'EUR', 'FACTURE', '{}', '2026-01-01'),"
+            "        ('save',  'savings',  ?, -900.0, 'EUR', 'BROKER',  '{}', '2026-01-01'),"
+            "        ('income','checking', ?, 250.0, 'EUR', 'VIR',     '{}', '2026-01-01')",
+            (today, today, today),
+        )
+        conn.commit()
+
+        mtd_spend = store.month_to_date_totals(conn, spend_only=True)
+        mtd_all = store.month_to_date_totals(conn, spend_only=False)
+        assert mtd_spend == {"spent": 40.0, "income": 250.0, "net": 210.0}
+        assert mtd_all == {"spent": 940.0, "income": 250.0, "net": -690.0}
+
+        series_spend = store.monthly_series(conn, months=1, spend_only=True)
+        series_all = store.monthly_series(conn, months=1, spend_only=False)
+        assert series_spend[-1]["spent"] == 40.0
+        assert series_all[-1]["spent"] == 940.0

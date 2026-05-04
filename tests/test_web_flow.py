@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from finance.auth.keys import generate_keypair
 from finance.db import store
 from finance.eb.client import EnableBankingClient
 from finance.web.app import AppState, create_app
+from tests.web_client import ASGITestClient
 
 # Canned Enable Banking responses for a Mock ASPSP sandbox flow.
 ASPSPS = {
@@ -76,7 +76,7 @@ def client_and_transport(tmp_path):
     )
     app = create_app(state)
     # Don't follow redirects automatically so we can assert on them
-    return TestClient(app, follow_redirects=False), state, captured
+    return ASGITestClient(app, follow_redirects=False), state, captured
 
 
 def test_index_empty(client_and_transport):

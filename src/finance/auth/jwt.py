@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 import time
 
 import jwt as pyjwt
@@ -16,5 +17,11 @@ def sign(app_id: str, private_key_pem: bytes, ttl_seconds: int = 3600) -> str:
     if ttl_seconds > 86400:
         raise ValueError("Enable Banking rejects tokens with TTL > 24h")
     iat = int(time.time())
-    body = {"iss": EB_ISSUER, "aud": EB_AUDIENCE, "iat": iat, "exp": iat + ttl_seconds}
+    body = {
+        "iss": EB_ISSUER,
+        "aud": EB_AUDIENCE,
+        "iat": iat,
+        "exp": iat + ttl_seconds,
+        "jti": secrets.token_hex(16),
+    }
     return pyjwt.encode(body, private_key_pem, algorithm="RS256", headers={"kid": app_id})

@@ -9,6 +9,10 @@ doesn't need its own `AppState` — it piggybacks on the one configured in
 
 from __future__ import annotations
 
+import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import pandas as pd
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
@@ -36,12 +40,12 @@ def _templates(request: Request) -> Jinja2Templates:
     return request.app.state.finance_templates
 
 
-def _db(request: Request):
+@contextmanager
+def _db(request: Request) -> Iterator[sqlite3.Connection]:
     """Open a SQLite connection using the db_path from AppState."""
     state = request.app.state.finance
-    conn = store.connect(state.db_path)
-    store.init_schema(conn)
-    return conn
+    with store.open_db(state.db_path) as conn:
+        yield conn
 
 
 def _df_to_rows(df: pd.DataFrame | None) -> list[dict]:
@@ -62,7 +66,7 @@ def _df_to_rows(df: pd.DataFrame | None) -> list[dict]:
 
 
 @router.get("/", response_class=HTMLResponse)
-def overview_page(request: Request, spend_only: bool = True, months: int = 3):
+async def overview_page(request: Request, spend_only: bool = True, months: int = 3):
     with _db(request) as conn:
         data = build_overview(
             conn,
@@ -72,8 +76,8 @@ def overview_page(request: Request, spend_only: bool = True, months: int = 3):
             spend_only=spend_only,
             threshold=500.0,
         )
-        mtd = store.month_to_date_totals(conn)
-        monthly = store.monthly_series(conn, months=6)
+        mtd = store.month_to_date_totals(conn, spend_only=spend_only)
+        monthly = store.monthly_series(conn, months=6, spend_only=spend_only)
     return _templates(request).TemplateResponse(
         request,
         "overview.html",
@@ -101,7 +105,7 @@ def overview_page(request: Request, spend_only: bool = True, months: int = 3):
 
 
 @router.get("/merchants", response_class=HTMLResponse)
-def merchants_page(
+async def merchants_page(
     request: Request,
     top: int = 50,
     uncategorized: bool = False,
@@ -116,20 +120,18 @@ def merchants_page(
             since=since,
             uncategorized_only=uncategorized,
         )
-    rows = _df_to_rows(df)
-    taxonomy = load_taxonomy()
-    summary = {
-        "count": int(len(df)),
-        "total_spend": float(df["total_spend"].sum()) if not df.empty else 0.0,
-        "total_income": float(df["total_income"].sum()) if not df.empty else 0.0,
-        "total_txns": int(df["txns"].sum()) if not df.empty else 0,
-    }
+        rows = _df_to_rows(df)
+        summary = {
+            "count": int(len(df)),
+            "total_spend": float(df["total_spend"].sum()) if not df.empty else 0.0,
+            "total_income": float(df["total_income"].sum()) if not df.empty else 0.0,
+            "total_txns": int(df["txns"].sum()) if not df.empty else 0,
+        }
 
-    # When reviewing uncategorized merchants, also fetch any persisted LLM
-    # proposals (below auto-write threshold) so the user can Accept / Ignore.
-    proposals: list[dict] = []
-    if uncategorized:
-        with _db(request) as conn:
+        # When reviewing uncategorized merchants, also fetch any persisted LLM
+        # proposals (below auto-write threshold) so the user can Accept / Ignore.
+        proposals: list[dict] = []
+        if uncategorized:
             p_rows = conn.execute(
                 """
                 SELECT p.merchant_id, m.canonical_name AS merchant, p.category,
@@ -144,15 +146,14 @@ def merchants_page(
                 ORDER BY p.confidence DESC, total_spend DESC
                 """
             ).fetchall()
-        proposals = [dict(r) for r in p_rows]
+            proposals = [dict(r) for r in p_rows]
 
-    # When reviewing uncategorized merchants, fetch up to 3 example memos per
-    # row so the user has enough context to categorize in-place.
-    memos_by_mid: dict[int, list[str]] = {}
-    if uncategorized and rows:
-        mids = [int(r["merchant_id"]) for r in rows]
-        ph = ",".join("?" for _ in mids)
-        with _db(request) as conn:
+        # When reviewing uncategorized merchants, fetch up to 3 example memos per
+        # row so the user has enough context to categorize in-place.
+        memos_by_mid: dict[int, list[str]] = {}
+        if uncategorized and rows:
+            mids = [int(r["merchant_id"]) for r in rows]
+            ph = ",".join("?" for _ in mids)
             memo_rows = conn.execute(
                 f"""
                 SELECT e.merchant_id, t.remittance_info, t.booking_date
@@ -163,10 +164,12 @@ def merchants_page(
                 """,
                 mids,
             ).fetchall()
-        for mr in memo_rows:
-            mid = int(mr["merchant_id"])
-            if len(memos_by_mid.get(mid, [])) < 3 and mr["remittance_info"]:
-                memos_by_mid.setdefault(mid, []).append(mr["remittance_info"])
+            for mr in memo_rows:
+                mid = int(mr["merchant_id"])
+                if len(memos_by_mid.get(mid, [])) < 3 and mr["remittance_info"]:
+                    memos_by_mid.setdefault(mid, []).append(mr["remittance_info"])
+
+    taxonomy = load_taxonomy()
 
     from finance.llm.categorize import AUTO_WRITE_THRESHOLD
 
@@ -196,7 +199,7 @@ def merchants_page(
 
 
 @router.get("/merchants/{canonical}", response_class=HTMLResponse)
-def merchant_detail_page(request: Request, canonical: str):
+async def merchant_detail_page(request: Request, canonical: str):
     with _db(request) as conn:
         dd = deep_dive(conn, canonical)
     if dd is None:
@@ -215,7 +218,7 @@ def merchant_detail_page(request: Request, canonical: str):
 
 
 @router.post("/merchants/llm-categorize", response_class=HTMLResponse)
-def merchants_llm_categorize(request: Request, provider: str = "api"):
+async def merchants_llm_categorize(request: Request, provider: str = "api"):
     """Run the LLM categorizer on currently-uncategorized merchants.
 
     `provider=api`       → Anthropic API (pay-per-token, fast, default).
@@ -264,7 +267,7 @@ def merchants_llm_categorize(request: Request, provider: str = "api"):
 
 
 @router.get("/llm/progress", response_class=HTMLResponse)
-def llm_progress(request: Request):
+async def llm_progress(request: Request):
     """Poll-endpoint — returns the latest llm_runs state as a small HTML fragment.
 
     The uncategorized page polls this every 2 s while the LLM button's
@@ -318,7 +321,7 @@ def llm_progress(request: Request):
 
 
 @router.post("/merchants/accept-all-proposals", response_class=HTMLResponse)
-def merchants_accept_all_proposals(request: Request):
+async def merchants_accept_all_proposals(request: Request):
     """Apply every persisted llm_proposal as source='user' and clear them.
 
     Atomic: either every proposal applies (no user-override conflict) or we
@@ -359,7 +362,7 @@ def merchants_accept_all_proposals(request: Request):
 
 
 @router.post("/merchants/{merchant_id}/accept-proposal", response_class=HTMLResponse)
-def merchants_accept_proposal(request: Request, merchant_id: int):
+async def merchants_accept_proposal(request: Request, merchant_id: int):
     """Accept a low-confidence LLM proposal for this merchant.
 
     Applies the stored category with source='user' (user approved), deletes
@@ -389,7 +392,7 @@ def merchants_accept_proposal(request: Request, merchant_id: int):
 
 
 @router.post("/merchants/{merchant_id}/ignore-proposal", response_class=HTMLResponse)
-def merchants_ignore_proposal(request: Request, merchant_id: int):
+async def merchants_ignore_proposal(request: Request, merchant_id: int):
     """Dismiss the proposal for this run. Will be re-surfaced if a future LLM
     run proposes the same category again."""
     with _db(request) as conn:
@@ -404,7 +407,7 @@ def merchants_ignore_proposal(request: Request, merchant_id: int):
 
 
 @router.post("/merchants/{merchant_id}/category", response_class=HTMLResponse)
-def merchants_set_category(
+async def merchants_set_category(
     request: Request,
     merchant_id: int,
     category: str = Form(default=""),
@@ -450,7 +453,7 @@ def merchants_set_category(
 
 
 @router.get("/recurring", response_class=HTMLResponse)
-def recurring_page(request: Request, active_only: bool = True):
+async def recurring_page(request: Request, active_only: bool = True):
     with _db(request) as conn:
         df = find_recurring(conn, active_only=active_only)
     summary = {
@@ -465,7 +468,7 @@ def recurring_page(request: Request, active_only: bool = True):
 
 
 @router.get("/subscriptions", response_class=HTMLResponse)
-def subscriptions_page(request: Request):
+async def subscriptions_page(request: Request):
     from finance.analysis.subscriptions import find_sub_candidates
     from finance.analysis.totals import compute_totals
 
@@ -497,7 +500,7 @@ def subscriptions_page(request: Request):
 
 
 @router.post("/streams/{stream_id}/accept-as-sub", response_class=HTMLResponse)
-def stream_accept_as_sub(request: Request, stream_id: str):
+async def stream_accept_as_sub(request: Request, stream_id: str):
     """User: 'yes, this IS a subscription' — override the category gate."""
     with _db(request) as conn:
         cur = conn.execute(
@@ -511,7 +514,7 @@ def stream_accept_as_sub(request: Request, stream_id: str):
 
 
 @router.post("/streams/{stream_id}/reject-as-sub", response_class=HTMLResponse)
-def stream_reject_as_sub(request: Request, stream_id: str):
+async def stream_reject_as_sub(request: Request, stream_id: str):
     """User: 'no, not a subscription' — lock it out so it doesn't keep showing."""
     with _db(request) as conn:
         cur = conn.execute(
@@ -525,7 +528,7 @@ def stream_reject_as_sub(request: Request, stream_id: str):
 
 
 @router.get("/forecast", response_class=HTMLResponse)
-def forecast_page(request: Request, days: int = 30):
+async def forecast_page(request: Request, days: int = 30):
     with _db(request) as conn:
         df = next_expected_charges(conn, horizon_days=days)
     summary = {
@@ -545,7 +548,7 @@ def forecast_page(request: Request, days: int = 30):
 
 
 @router.get("/alerts", response_class=HTMLResponse)
-def alerts_page(request: Request, threshold: float = 500.0):
+async def alerts_page(request: Request, threshold: float = 500.0):
     with _db(request) as conn:
         new_large = new_large_merchants(conn, amount_threshold=threshold)
         stopped = subscription_stopped(conn)
@@ -575,7 +578,7 @@ def alerts_page(request: Request, threshold: float = 500.0):
 
 
 @router.get("/advice", response_class=HTMLResponse)
-def advice_page(request: Request, show_dismissed: bool = False):
+async def advice_page(request: Request, show_dismissed: bool = False):
     import json
 
     with _db(request) as conn:
@@ -600,7 +603,7 @@ def advice_page(request: Request, show_dismissed: bool = False):
 
 
 @router.post("/advice/{advice_id}/dismiss")
-def advice_dismiss(request: Request, advice_id: int):
+async def advice_dismiss(request: Request, advice_id: int):
     with _db(request) as conn:
         ok = dismiss_advice(conn, advice_id)
     if not ok:
@@ -619,7 +622,7 @@ def advice_dismiss(request: Request, advice_id: int):
 
 
 @router.get("/rules", response_class=HTMLResponse)
-def rules_page(request: Request):
+async def rules_page(request: Request):
     from finance.categorize import load_rules
     from finance.config import get_settings
 
@@ -637,7 +640,7 @@ def rules_page(request: Request):
 
 
 @router.post("/rules/add", response_class=HTMLResponse)
-def rules_add(
+async def rules_add(
     request: Request,
     match: str = Form(...),
     category: str = Form(...),
@@ -677,7 +680,7 @@ def rules_add(
 
 
 @router.post("/rules/{index}/delete", response_class=HTMLResponse)
-def rules_delete(request: Request, index: int):
+async def rules_delete(request: Request, index: int):
     from finance.categorize import load_rules, save_rules
     from finance.config import get_settings
 
@@ -695,7 +698,7 @@ def rules_delete(request: Request, index: int):
 
 
 @router.post("/rules/reenrich", response_class=HTMLResponse)
-def rules_reenrich(request: Request):
+async def rules_reenrich(request: Request):
     """Re-run the enrichment pipeline so rule changes propagate."""
     from finance.analysis.enrich import enrich_transactions
     from finance.categorize import load_rules
@@ -724,7 +727,7 @@ def rules_reenrich(request: Request):
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request):
+async def settings_page(request: Request):
     import os
 
     from finance.llm.client import (
@@ -776,7 +779,7 @@ def settings_page(request: Request):
 
 
 @router.post("/settings/llm-key", response_class=HTMLResponse)
-def settings_set_llm_key(request: Request, api_key: str = Form(...)):
+async def settings_set_llm_key(request: Request, api_key: str = Form(...)):
     from finance.llm.client import store_api_key
 
     api_key = api_key.strip()
@@ -801,7 +804,7 @@ def settings_set_llm_key(request: Request, api_key: str = Form(...)):
 
 
 @router.post("/accounts/{account_uid}/toggle", response_class=HTMLResponse)
-def accounts_toggle_exclude(request: Request, account_uid: str):
+async def accounts_toggle_exclude(request: Request, account_uid: str):
     with _db(request) as conn:
         row = conn.execute(
             "SELECT COALESCE(excluded_from_spend, 0) FROM accounts WHERE account_uid = ?",

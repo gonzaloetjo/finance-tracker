@@ -9,7 +9,9 @@ from finance.analysis.enrich import enrich_transactions
 from finance.db.store import connect, init_schema
 from finance.llm.categorize import (
     CategorizeResponse,
+    CategorizeSummary,
     CategoryResult,
+    _apply_proposals,
     categorize_uncategorized,
     collect_uncategorized,
     load_taxonomy,
@@ -254,6 +256,61 @@ def test_categorize_excludes_user_source(tmp_path):
 
         items = collect_uncategorized(conn)
         assert all(m.canonical_name != "NETFLIX" for m in items)
+
+
+def test_collect_uncategorized_preserves_rule_and_curated_sources(tmp_path):
+    with connect(tmp_path / "x.db") as conn:
+        init_schema(conn)
+        for name, category, source in [
+            ("USERSET", "Shopping", "user"),
+            ("CURATEDSET", "Groceries", "curated"),
+            ("RULESET", "Dining", "rule"),
+            ("LLMSET", "Shopping", "llm"),
+            ("EMPTYSET", None, None),
+        ]:
+            conn.execute(
+                "INSERT INTO merchants (canonical_name, category, category_source, updated_at)"
+                " VALUES (?, ?, ?, '2026-01-01')",
+                (name, category, source),
+            )
+        conn.commit()
+
+        names = {m.canonical_name for m in collect_uncategorized(conn)}
+        assert names == {"LLMSET", "EMPTYSET"}
+
+
+def test_apply_proposals_does_not_overwrite_rule_source(tmp_path):
+    with connect(tmp_path / "x.db") as conn:
+        init_schema(conn)
+        conn.execute(
+            "INSERT INTO merchants (merchant_id, canonical_name, category, category_source, updated_at)"
+            " VALUES (1, 'RULESET', 'Dining', 'rule', '2026-01-01')"
+        )
+        conn.commit()
+
+        summary = CategorizeSummary(model="test-model")
+        proposal = CategoryResult(
+            canonical_name="RULESET",
+            category="Shopping",
+            confidence=0.99,
+            reasoning="wrong",
+        )
+        _apply_proposals(
+            conn,
+            [proposal],
+            {"RULESET": 1},
+            set(load_taxonomy()),
+            "2026-01-02",
+            False,
+            summary,
+        )
+
+        row = conn.execute(
+            "SELECT category, category_source FROM merchants WHERE merchant_id = 1"
+        ).fetchone()
+        assert row[0] == "Dining"
+        assert row[1] == "rule"
+        assert summary.written == 0
 
 
 def test_categorize_hallucinated_category_skipped(tmp_path):

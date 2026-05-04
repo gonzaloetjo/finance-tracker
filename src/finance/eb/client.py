@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -7,6 +8,15 @@ import httpx
 
 from finance.auth.jwt import sign
 from finance.config import EB_BASE_URL
+
+_IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{4,}\b")
+
+
+def _safe_error_body(text: str, *, limit: int = 400) -> str:
+    redacted = _IBAN_RE.sub("[REDACTED-IBAN]", text)
+    if len(redacted) <= limit:
+        return redacted
+    return redacted[:limit] + "...[truncated]"
 
 
 class EnableBankingClient:
@@ -49,9 +59,9 @@ class EnableBankingClient:
         headers.update(self._token_headers())
         resp = self._http.request(method, path, headers=headers, **kwargs)
         if resp.status_code >= 400:
-            # Surface the body — Enable Banking returns structured errors
+            # Surface the body, but keep account identifiers out of exception strings.
             raise httpx.HTTPStatusError(
-                f"{method} {path} → {resp.status_code}: {resp.text}",
+                f"{method} {path} → {resp.status_code}: {_safe_error_body(resp.text)}",
                 request=resp.request,
                 response=resp,
             )

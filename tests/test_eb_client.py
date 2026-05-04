@@ -92,6 +92,22 @@ def test_client_raises_on_error_status():
         list_aspsps(client, country="FR")
 
 
+def test_client_error_message_redacts_iban_and_truncates_body():
+    iban = "FR7630006000011234567890189"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text=f"account {iban} " + ("x" * 700))
+
+    with _make_client(handler) as client, pytest.raises(httpx.HTTPStatusError) as exc_info:
+        list_aspsps(client, country="FR")
+
+    message = str(exc_info.value)
+    assert iban not in message
+    assert "[REDACTED-IBAN]" in message
+    assert "[truncated]" in message
+    assert len(message) < 520
+
+
 def test_client_caches_jwt_across_requests():
     seen_tokens: list[str] = []
 

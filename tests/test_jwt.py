@@ -32,6 +32,12 @@ def test_jwt_roundtrip():
     assert claims["aud"] == EB_AUDIENCE
     assert claims["exp"] - claims["iat"] == 600
     assert abs(claims["iat"] - int(time.time())) < 5
+    assert isinstance(claims["jti"], str)
+    assert len(claims["jti"]) == 32
+
+    second_token = sign(app_id, private_pem, ttl_seconds=600)
+    second_claims = pyjwt.decode(second_token, pub_pem, algorithms=["RS256"], audience=EB_AUDIENCE)
+    assert second_claims["jti"] != claims["jti"]
 
 
 def test_jwt_rejects_ttl_over_24h():
