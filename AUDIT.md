@@ -1041,3 +1041,93 @@ issues were correctness/security/doc/test-harness items.
 `audit-reports/` was untracked local scratch output. It was removed
 after the verified fixes landed; `AUDIT.md` remains the durable source
 of audit history.
+
+---
+
+## Tier P — `web/app.py` follow-through
+
+Surfaced when an external review AI proposed two architectural tweaks:
+(1) decouple `db/store.py` from `eb.models.SessionResponse`, and
+(2) normalize `web/app.py`'s DB access to match `dashboard.py`. Item 1
+was rejected as speculative — single-user single-bank tool, the
+`CLAUDE.md` rules explicitly forbid designing for hypothetical future
+providers. Item 2 had a stronger rationale than the suggester gave it:
+not just consistency, but an actual file-descriptor leak.
+
+### Findings (baseline: commit `5e0f106`, the Tier O AUDIT entry)
+
+1. **`web/app.py` leaked SQLite connections.** The local
+   `def db(): return store.connect(state.db_path)` helper returned
+   a raw `sqlite3.Connection`. `sqlite3.Connection.__exit__` only
+   commits/rollbacks — it does **not** call `close()`. Every
+   `with db() as conn:` in `/callback`, `/transactions`, and
+   `/accounts`, plus the `with store.connect(...) as conn:` in
+   `/sync`, leaked an open file descriptor per request. Tier O fixed
+   this exact pattern in `web/dashboard.py` (commit `aa610b0`) but
+   missed `web/app.py`.
+2. **Duplicated `init_schema(conn)` calls.** Four handlers called
+   `store.init_schema(conn)` inline immediately after opening the
+   connection. `store.open_db()` already runs init_schema; the calls
+   were dead under the new contextmanager.
+3. **`accounts_page` re-implemented `store.list_accounts`.** The
+   inline SELECT at `app.py:159-169` duplicated the helper's body
+   with a slightly narrower column set plus a
+   `COALESCE(excluded_from_spend, 0) AS excluded` alias. The
+   dashboard's account-toggle endpoint already produced an `excluded`
+   field with the same alias; templates (`_account_row.html`)
+   consumed it. Schema-drift trap: any change to the accounts
+   shape needed to land in three places.
+
+### Decisions
+
+Single fix commit. Drop the `db()` helper; inline
+`store.open_db(state.db_path)` at the four call sites
+(closure already has `state` in scope, so no wrapper needed —
+unlike `dashboard.py`'s `_db(request)` which has to dig the path
+out of `request.app.state.finance`). Drop the now-redundant
+`init_schema` calls. Widen `store.list_accounts` to alias
+`COALESCE(excluded_from_spend, 0) AS excluded` and have
+`accounts_page` call it instead of running its own SQL.
+
+The widen is backward-compatible: `tests/test_web_flow.py:126` is
+the only external `list_accounts` consumer and it reads existing
+keys only. The extra dict entry is harmless to any caller.
+
+Item 1 (decouple `db/store.py` from `eb.models.SessionResponse`)
+**not** taken. `persist_session` has one caller (`web/app.py`'s
+`/callback`); adding a `SessionRecord` translator is pure ceremony
+for a single-bank single-user tool, and `CLAUDE.md` rejects
+hypothetical-future abstractions.
+
+### Changes
+
+- `05265da` — `refactor(web): migrate app.py to store.open_db,
+  dedup accounts_page SQL`. Local `db()` helper deleted; four
+  handlers switched to `store.open_db(state.db_path)`; redundant
+  `init_schema(conn)` calls removed; `accounts_page` now calls
+  `store.list_accounts(conn)`; `list_accounts` SELECT widened with
+  `COALESCE(excluded_from_spend, 0) AS excluded`. Net: +8 / −24.
+
+### Verification
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` — 207 / 207 passing.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check . --select SIM,UP,B,F,I` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run mypy src/finance` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run vulture src/finance --min-confidence 80` — clean.
+
+### Tier P deferred (out of scope)
+
+- **Decouple `db/store.py` from `finance.eb.models.SessionResponse`.**
+  Single-caller, single-provider; speculative. Revisit only if a
+  second bank provider lands.
+- **`store.connect` vs `store.open_db` ambiguity.** `store.connect`
+  still returns a raw `sqlite3.Connection`, which the test fixtures
+  use (`tests/test_web_dashboard.py`, `tests/test_sync.py`) for
+  one-shot direct-SQL seeding. The leak only matters in long-running
+  processes; tests are fine. Mark `connect` as fixture/internal-only
+  if a future tier touches it.
+- **`cli.py` 1551 LoC, 0% test coverage** (per Pass 1 baseline,
+  status unchanged). Largest remaining fragility lever in the repo,
+  but a multi-commit project (split into command groups + integration
+  tests) — not a small tier. Flagged here as the obvious next thing
+  if quality work continues.
