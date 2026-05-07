@@ -66,9 +66,6 @@ def create_app(state: AppState) -> FastAPI:
 
     app.include_router(dashboard_router)
 
-    def db():
-        return store.connect(state.db_path)
-
     @app.get("/connect", response_class=HTMLResponse)
     async def connect_page(request: Request, country: str = "FR"):
         try:
@@ -117,16 +114,14 @@ def create_app(state: AppState) -> FastAPI:
         with state.client_factory() as client:
             session = finalize_session(client, code=code)
 
-        with db() as conn:
-            store.init_schema(conn)
+        with store.open_db(state.db_path) as conn:
             store.persist_session(conn, session)
 
         return RedirectResponse("/", status_code=303)
 
     @app.post("/sync", response_class=HTMLResponse)
     async def sync_now(request: Request):
-        with state.client_factory() as client, store.connect(state.db_path) as conn:
-            store.init_schema(conn)
+        with state.client_factory() as client, store.open_db(state.db_path) as conn:
             results = sync_all_accounts(conn, client, rules=state.rules)
         return templates.TemplateResponse(request, "_sync_result.html", {"results": results})
 
@@ -136,8 +131,7 @@ def create_app(state: AppState) -> FastAPI:
         from datetime import timedelta as _td
 
         since = since or (_date.today() - _td(days=30)).isoformat()
-        with db() as conn:
-            store.init_schema(conn)
+        with store.open_db(state.db_path) as conn:
             rows = conn.execute(
                 """
                 SELECT booking_date, amount, currency, creditor_name, debtor_name, remittance_info
@@ -154,20 +148,8 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.get("/accounts", response_class=HTMLResponse)
     async def accounts_page(request: Request):
-        with db() as conn:
-            store.init_schema(conn)
-            rows = conn.execute(
-                """
-                SELECT a.account_uid, a.name, a.iban, a.currency,
-                       COALESCE(a.excluded_from_spend, 0) AS excluded,
-                       s.aspsp_name, s.aspsp_country, s.valid_until
-                FROM accounts a
-                JOIN sessions s ON s.session_id = a.session_id
-                WHERE s.revoked_at IS NULL
-                ORDER BY a.name
-                """
-            ).fetchall()
-            accounts = [dict(r) for r in rows]
+        with store.open_db(state.db_path) as conn:
+            accounts = store.list_accounts(conn)
         return templates.TemplateResponse(request, "accounts.html", {"accounts": accounts})
 
     return app

@@ -193,7 +193,9 @@ def monthly_series(
 def list_accounts(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT a.*, s.aspsp_name, s.aspsp_country, s.valid_until
+        SELECT a.*,
+               COALESCE(a.excluded_from_spend, 0) AS excluded,
+               s.aspsp_name, s.aspsp_country, s.valid_until
         FROM accounts a
         JOIN sessions s ON s.session_id = a.session_id
         WHERE s.revoked_at IS NULL
