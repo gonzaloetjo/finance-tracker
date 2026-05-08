@@ -1131,3 +1131,80 @@ hypothetical-future abstractions.
   but a multi-commit project (split into command groups + integration
   tests) — not a small tier. Flagged here as the obvious next thing
   if quality work continues.
+
+---
+
+## Tier Q — security baseline from repo-audit-2026-05-07
+
+The structured contrarian audit in `docs/repo-audit-2026-05-07/`
+identified a roadmap of security, operations, maintainability, and
+analytics-platform work. Per the plan, Tier Q is the first implementation
+tier: fix the immediate security/doc drift items while leaving job safety,
+large refactors, and platform contracts for later tiers.
+
+### Findings
+
+1. **Dependency audit failed on current locked packages.** The fresh
+   `pip-audit --skip-editable` run found vulnerable runtime
+   `python-multipart` plus vulnerable dev/tooling packages
+   (`jupyter-server`, `jupyterlab`, `mistune`, `pip`). CI also had
+   `continue-on-error: true`, so dependency failures were visible but
+   non-blocking.
+2. **LLM categorize auto-write threshold was documented as `0.90` but
+   implemented as `0.73`.** The code threshold was already used by CLI
+   and web flows; docs and module prose were stale.
+3. **Account rows rendered full IBANs.** The DB still stores IBANs, but
+   the web account table did not need to expose the full identifier.
+4. **Dynamic HTML fragments interpolated unescaped provider/local error
+   text.** The most relevant paths were LLM provider errors, LLM progress
+   labels, regex validation errors, and keyring errors.
+5. **Uvicorn access logs could include OAuth callback query strings.**
+   The callback carries `code` in the query string.
+6. **`scripts/finance-all.sh` hid failures and queried removed LLM cache
+   columns.** The script printed "All done" after failed sections and the
+   LLM cost summary referenced `cache_read_tokens`.
+
+### Decisions
+
+- Keep the current `AUTO_WRITE_THRESHOLD = 0.73`; update docs/prose to
+  match rather than changing behavior.
+- Treat `CVE-2026-3219` on `pip` as a no-fixed-version toolchain CVE for
+  now: update `pip` to the version that fixes the second pip CVE, and
+  make CI run `pip-audit` with only that one explicit ignore.
+- Keep the raw IBAN in SQLite for now; this tier only changes display
+  behavior. Storage minimization/encryption remains a later security item.
+- Escape dynamic direct `HTMLResponse` fragments in place. Broader route
+  splitting / Jinja partial conversion is deferred to the maintainability
+  tier.
+- Disable uvicorn access logs by default for the local dashboard.
+
+### Changes
+
+- `545da6b` — `fix(security): land tier q baseline`.
+  Upgraded vulnerable package constraints + lock entries
+  (`python-multipart`, `jupyter-server`, `jupyterlab`, `mistune`, `pip`);
+  made CI dependency audit blocking except for the no-fixed-version pip
+  CVE; aligned the LLM threshold docs to `0.73`; added masked IBAN
+  rendering; escaped dynamic dashboard HTML fragments; disabled uvicorn
+  access logs; fixed `finance-all.sh` failure propagation and current
+  `llm_runs` cost SQL; added regression tests for masked IBAN and escaped
+  fragments.
+
+### Verification
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run mypy src/finance` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run vulture src/finance --min-confidence 80` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219` — no known vulnerabilities found.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_web_flow.py tests/test_web_dashboard.py tests/test_llm_categorize.py -q` — 54 / 54 passing.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` — 209 / 209 passing.
+
+### Deferred to later roadmap tiers
+
+- **Tier R:** sync partial-failure semantics, SQLite WAL / busy timeout,
+  hot indexes, and DB-backed job locks.
+- **Tier S:** split `cli.py` / `web/dashboard.py` through service
+  extraction, add migration runner, and stream-integrity tests.
+- **Tier T:** introduce platform contracts (`CanonicalEvent`,
+  `DatasetAdapter`, `MetricSpec`) and prove them with a second small
+  analytics domain.
