@@ -13,6 +13,7 @@ set -euo pipefail
 DO_SYNC=0
 DO_LLM=0
 DO_SERVE=0
+FAILURES=0
 for arg in "$@"; do
   case "$arg" in
     --sync)  DO_SYNC=1 ;;
@@ -31,7 +32,10 @@ section() {
 
 run() {
   printf '  \033[2m$ %s\033[0m\n' "$*"
-  "$@" || printf '  \033[0;31m(command failed)\033[0m\n'
+  if ! "$@"; then
+    printf '  \033[0;31m(command failed)\033[0m\n'
+    FAILURES=$((FAILURES + 1))
+  fi
 }
 
 cd "$(dirname "$0")/.."
@@ -122,11 +126,11 @@ if [[ $DO_LLM -eq 1 ]]; then
   run uv run python -c "
 import sqlite3, os
 c = sqlite3.connect(os.path.expanduser('~/.local/share/finance/finance.db'))
-print(f'  {\"kind\":<24} {\"calls\":>6} {\"in\":>8} {\"out\":>8} {\"cache_read\":>12}')
-for kind, n, i, o, cr in c.execute(
-    'SELECT kind, COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),'
-    ' COALESCE(SUM(cache_read_tokens),0) FROM llm_runs GROUP BY 1 ORDER BY 1'):
-    print(f'  {kind:<24} {n:>6} {i:>8} {o:>8} {cr:>12}')
+print(f'  {\"kind\":<24} {\"calls\":>6} {\"in\":>8} {\"out\":>8}')
+for kind, n, i, o in c.execute(
+    'SELECT kind, COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) '
+    'FROM llm_runs GROUP BY 1 ORDER BY 1'):
+    print(f'  {kind:<24} {n:>6} {i:>8} {o:>8}')
 "
 fi
 
@@ -139,4 +143,9 @@ if [[ $DO_SERVE -eq 1 ]]; then
   run uv run finance serve
 fi
 
-printf '\n\033[1;32m✓ All done.\033[0m\n'
+if [[ $FAILURES -gt 0 ]]; then
+  printf '\n\033[0;31m%d command(s) failed.\033[0m\n' "$FAILURES"
+  exit 1
+fi
+
+printf '\n\033[1;32mAll done.\033[0m\n'

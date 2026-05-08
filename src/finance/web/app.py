@@ -16,6 +16,7 @@ from finance.db import store
 from finance.eb.client import EnableBankingClient
 from finance.eb.flows import finalize_session, list_aspsps, start_auth
 from finance.sync import sync_all_accounts
+from finance.web.privacy import mask_iban
 
 
 @dataclass
@@ -150,6 +151,7 @@ def create_app(state: AppState) -> FastAPI:
     async def accounts_page(request: Request):
         with store.open_db(state.db_path) as conn:
             accounts = store.list_accounts(conn)
+        accounts = [{**a, "iban_masked": mask_iban(a.get("iban"))} for a in accounts]
         return templates.TemplateResponse(request, "accounts.html", {"accounts": accounts})
 
     return app

@@ -172,7 +172,7 @@ Categorize the uncategorized long tail (default model: `claude-haiku-4-5`):
 
 ```bash
 uv run finance enrich llm-categorize --dry-run         # preview proposals + token cost
-uv run finance enrich llm-categorize                   # auto-write ≥0.90 confidence
+uv run finance enrich llm-categorize                   # auto-write ≥0.73 confidence
 uv run finance enrich llm-categorize --limit 50 --model claude-sonnet-4-6
 ```
 

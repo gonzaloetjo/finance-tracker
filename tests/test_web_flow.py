@@ -135,7 +135,8 @@ def test_full_consent_flow(client_and_transport):
     resp = client.get("/accounts")
     assert resp.status_code == 200
     assert "Compte Chèque" in resp.text
-    assert "FR7612345678901234567890123" in resp.text
+    assert "FR76...0123" in resp.text
+    assert "FR7612345678901234567890123" not in resp.text
 
     # Verify the HTTP calls we made to Enable Banking
     methods_paths = [(m, httpx.URL(u).path) for m, u in captured["calls"]]

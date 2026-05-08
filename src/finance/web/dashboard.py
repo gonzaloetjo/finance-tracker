@@ -9,6 +9,7 @@ doesn't need its own `AppState` — it piggybacks on the one configured in
 
 from __future__ import annotations
 
+import html
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -31,6 +32,7 @@ from finance.analysis.subscriptions import find_overlaps, find_subscriptions
 from finance.db import store
 from finance.llm.advise import dismiss_advice, list_advice
 from finance.llm.categorize import load_taxonomy
+from finance.web.privacy import mask_iban
 
 router = APIRouter()
 
@@ -58,6 +60,13 @@ def _df_to_rows(df: pd.DataFrame | None) -> list[dict]:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             df[col] = df[col].dt.strftime("%Y-%m-%d")
     return df.where(df.notna(), None).to_dict(orient="records")
+
+
+def _escape(value: object, *, limit: int | None = None) -> str:
+    text = "" if value is None else str(value)
+    if limit is not None:
+        text = text[:limit]
+    return html.escape(text, quote=True)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -243,7 +252,7 @@ async def merchants_llm_categorize(request: Request, provider: str = "api"):
         return HTMLResponse(
             f'<div class="bg-red-50 text-red-800 border border-red-200 rounded px-4 py-3">'
             f'<div class="font-semibold">Claude Code provider unavailable</div>'
-            f'<div class="text-sm mt-1">{str(e)[:240]}</div></div>'
+            f'<div class="text-sm mt-1">{_escape(e, limit=240)}</div></div>'
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
@@ -252,10 +261,11 @@ async def merchants_llm_categorize(request: Request, provider: str = "api"):
         with _db(request) as conn:
             summary = categorize_uncategorized(conn, client=llm, limit=150)
     except Exception as e:
+        message = _escape(redact_key(str(e)), limit=240)
         return HTMLResponse(
             f'<div class="bg-red-50 text-red-800 border border-red-200 rounded px-4 py-3">'
             f'<div class="font-semibold">LLM call failed</div>'
-            f'<div class="text-sm mt-1">{redact_key(str(e))[:240]}</div>'  # type: ignore[index]
+            f'<div class="text-sm mt-1">{message}</div>'
             f"</div>"
         )
 
@@ -298,23 +308,25 @@ async def llm_progress(request: Request):
         ).fetchall()
 
     if running:
-        label = running["label"] or "running…"
+        label = _escape(running["label"] or "running...")
+        started = _escape(str(running["started_at"])[11:19])
         return HTMLResponse(
             f'<div class="text-xs text-violet-900">'
             f'<span class="spinner mr-2"></span>'
             f"<strong>Working:</strong> {label}"
-            f' <span class="muted">· started {running["started_at"][11:19]} UTC</span>'
+            f' <span class="muted">- started {started} UTC</span>'
             f"</div>"
             + "".join(
-                f'<div class="text-xs muted mt-0.5">✓ {r["label"] or ""}</div>' for r in recent_ok
+                f'<div class="text-xs muted mt-0.5">ok {_escape(r["label"] or "")}</div>'
+                for r in recent_ok
             )
         )
     # Nothing running.
     if recent_ok:
         return HTMLResponse(
             '<div class="text-xs text-emerald-800">'
-            "<strong>✓ Done.</strong> Last batches: "
-            + ", ".join(r["label"] or "" for r in recent_ok)
+            "<strong>Done.</strong> Last batches: "
+            + ", ".join(_escape(r["label"] or "") for r in recent_ok)
             + "</div>"
         )
     return HTMLResponse('<div class="text-xs muted">idle</div>')
@@ -658,13 +670,13 @@ async def rules_add(
     except _re.error as e:
         return HTMLResponse(
             f'<div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">'
-            f"Invalid regex: {e}</div>",
+            f"Invalid regex: {_escape(e)}</div>",
             status_code=400,
         )
     if category not in load_taxonomy():
         return HTMLResponse(
             f'<div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">'
-            f"Category {category!r} not in taxonomy.</div>",
+            f"Category {repr(_escape(category))} not in taxonomy.</div>",
             status_code=400,
         )
 
@@ -794,7 +806,7 @@ async def settings_set_llm_key(request: Request, api_key: str = Form(...)):
     except Exception as e:
         return HTMLResponse(
             f'<div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">'
-            f"Keyring error: {e}</div>",
+            f"Keyring error: {_escape(e)}</div>",
             status_code=500,
         )
     return HTMLResponse(
@@ -828,8 +840,10 @@ async def accounts_toggle_exclude(request: Request, account_uid: str):
             """,
             (account_uid,),
         ).fetchone()
+    account = dict(acc)
+    account["iban_masked"] = mask_iban(account.get("iban"))
     return _templates(request).TemplateResponse(
         request,
         "_account_row.html",
-        {"a": dict(acc)},
+        {"a": account},
     )

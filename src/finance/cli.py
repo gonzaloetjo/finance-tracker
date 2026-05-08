@@ -308,7 +308,8 @@ def serve(
     )
     web_app = create_app(state)
 
-    kwargs: dict = {"host": host, "port": port, "log_level": "info"}
+    # Keep OAuth callback query parameters out of access logs by default.
+    kwargs: dict = {"host": host, "port": port, "log_level": "info", "access_log": False}
     scheme = "http"
     if tls or cfg.callback_url.startswith("https://"):
         from finance.web.tls import ensure_localhost_cert

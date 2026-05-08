@@ -344,8 +344,10 @@ def test_rules_add_and_delete_roundtrip(monkeypatch, tmp_path, dashboard_client)
     assert "Invalid regex" in bad.text
 
     # Bad category → error
-    bad_cat = client.post("/rules/add", data={"match": "valid", "category": "NotInTaxonomy"})
+    bad_cat = client.post("/rules/add", data={"match": "valid", "category": "<b>bad</b>"})
     assert bad_cat.status_code == 400
+    assert "&lt;b&gt;bad&lt;/b&gt;" in bad_cat.text
+    assert "<b>bad</b>" not in bad_cat.text
 
     # Delete
     resp = client.post("/rules/0/delete")
@@ -388,6 +390,38 @@ def test_settings_set_key_stores_in_keyring(monkeypatch, dashboard_client):
     assert resp.status_code == 200
     assert "API key stored" in resp.text
     assert ("finance-anthropic", "api-key") in stored
+
+
+def test_settings_set_key_escapes_keyring_errors(monkeypatch, dashboard_client):
+    import keyring
+
+    def raise_error(*_args):
+        raise RuntimeError("<script>alert(1)</script>")
+
+    monkeypatch.setattr(keyring, "set_password", raise_error)
+
+    client, _ = dashboard_client
+    resp = client.post("/settings/llm-key", data={"api_key": "sk-ant-demo"})
+    assert resp.status_code == 500
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in resp.text
+    assert "<script>alert(1)</script>" not in resp.text
+
+
+def test_llm_progress_escapes_labels(dashboard_client):
+    client, state = dashboard_client
+    with store.connect(state.db_path) as conn:
+        store.init_schema(conn)
+        conn.execute(
+            "INSERT INTO llm_runs (kind, model, started_at, status, error)"
+            " VALUES ('categorize', 'm', '2026-04-15T12:34:56+00:00', 'running', ?)",
+            ("<b>batch</b>",),
+        )
+        conn.commit()
+
+    resp = client.get("/llm/progress")
+    assert resp.status_code == 200
+    assert "&lt;b&gt;batch&lt;/b&gt;" in resp.text
+    assert "<b>batch</b>" not in resp.text
 
 
 def test_proposals_shown_on_uncategorized_page(seeded_dashboard):

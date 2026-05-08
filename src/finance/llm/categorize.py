@@ -5,8 +5,9 @@ Pipeline:
      already `llm`).
   2. For each, gather up to 3 example memos.
   3. One structured-output LLM call returns (category, confidence, reasoning).
-  4. Confidence-gated auto-write: ≥ 0.90 writes to merchants.category with
-     `source='llm'`; `< 0.90` surfaces in a candidates table.
+  4. Confidence-gated auto-write: ≥ AUTO_WRITE_THRESHOLD writes to
+     merchants.category with `source='llm'`; lower-confidence proposals
+     surface in a candidates table.
 
 User, curated, and rule-based categories are preserved; the LLM only fills
 empty merchants or refreshes its own prior assignments.
