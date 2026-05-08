@@ -102,14 +102,21 @@ Recommendation:
 Keep the single threshold constant as the source of truth and update docs
 in the same pass as any future threshold behavior change.
 
-### M4. Migrations Are Still Ad Hoc
+### M4. Migrations Were Ad Hoc (Partly Fixed In Tier R/S/T)
 
-Evidence:
+Initial evidence:
 
 - Schema lives in [db/schema.sql](../../src/finance/db/schema.sql).
 - Additive migrations are hardcoded in
   [store.py](../../src/finance/db/store.py#L32).
 - There is no schema version table or migration history.
+
+Current status:
+
+Tier R/S/T added `schema_migrations`, a tracked migration registry for
+existing additive columns, and old-schema migration tests. Destructive
+changes, plugin-owned migrations, and data backfills still need a richer
+runner.
 
 Risk:
 
@@ -117,13 +124,10 @@ The current approach works for additive columns. It will not age well for
 data backfills, table splits, index changes, destructive changes, or
 plugin-owned migrations.
 
-Recommendation:
+Remaining recommendation:
 
-Before the next schema change, add:
-
-- `schema_migrations(version, applied_at)`
-- ordered migration files
-- tests that create old schemas and verify upgrade paths
+Before the next destructive or data-backfill migration, extend the runner
+with ordered migration modules/files, rollback policy, and plugin ownership.
 
 ### M5. Transaction Ownership Is Muddy
 
@@ -149,7 +153,7 @@ Adopt one convention:
 - Top-level command/job/route handlers own transactions.
 - Any helper that commits must be named/documented as a top-level write.
 
-### M6. Stream Identity Can Become Incoherent After Merchant Merge
+### M6. Stream Identity Could Become Incoherent After Merchant Merge (Fixed In Tier R/S/T)
 
 Evidence:
 
@@ -164,11 +168,11 @@ Stream rows can remain keyed by an old merchant ID-derived hash until a
 reenrich/regroup. This is likely recoverable, but it is a data-integrity
 trap and currently lacks a regression test.
 
-Recommendation:
+Current status:
 
-After merge, either delete/recompute affected streams or explicitly mark
-the operation as requiring immediate stream regroup. Add a test for merge
-plus `group_streams()`.
+Tier R/S/T clears affected stream references, deletes stale stream rows,
+recomputes streams after merge, and adds a regression test for dangling
+`tx_enrichment.stream_id`.
 
 ### M7. The Stated IO Boundary Is Aspirational
 

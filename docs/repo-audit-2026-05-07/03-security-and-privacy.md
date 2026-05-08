@@ -129,8 +129,13 @@ Evidence:
   [store.py](../../src/finance/db/store.py#L98).
 - `sync_account()` writes full raw transaction JSON in
   [sync.py](../../src/finance/sync.py#L109).
-- `store.connect()` creates DB files but does not chmod them in
-  [store.py](../../src/finance/db/store.py#L24).
+- The initial audit found that `store.connect()` created DB files without
+  chmod hardening.
+
+Current status:
+
+Tier R/S/T chmods the data directory to `0700` and DB file to `0600`
+best-effort when opening the SQLite store. Raw payload retention remains.
 
 Risk:
 
@@ -139,7 +144,6 @@ may exceed what the app actually needs.
 
 Recommendation:
 
-- chmod DB file and parent data dir
 - add a purge/minimize command
 - consider optional SQLCipher or filesystem-level encrypted storage
 - store raw provider payloads only behind an explicit debug/forensics flag

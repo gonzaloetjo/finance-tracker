@@ -101,9 +101,9 @@ Plugins need to contribute nav items, pages, widgets, and metric views.
 | Advisory registry | `ADVISORY_KINDS` in `advise_dispatch.py` | Basis for metric/advisory plugins. |
 | Generic table partial | `_table.html` | Reusable UI component. |
 
-## Missing Platform Contracts
+## Platform Contracts
 
-### DatasetAdapter
+### DatasetAdapter (Introduced In Tier R/S/T)
 
 Needed contract:
 
@@ -114,12 +114,15 @@ class DatasetAdapter(Protocol):
     def normalize(self, raw: object) -> list[CanonicalEvent]: ...
 ```
 
-Current state:
+Current status:
 
-`sync_account()` is imperative finance-specific code in
-[sync.py](../../src/finance/sync.py#L63).
+Tier R/S/T introduced a `DatasetAdapter` protocol in
+[core/analytics.py](../../src/finance/core/analytics.py), plus a
+non-finance `UsageCsvAdapter` proof in
+[core/usage.py](../../src/finance/core/usage.py). `sync_account()` remains
+finance-specific imperative code.
 
-### CanonicalEvent
+### CanonicalEvent (Introduced In Tier R/S/T)
 
 Needed fields:
 
@@ -141,7 +144,7 @@ Finance mapping:
 Bank transaction amount becomes `value`, merchant becomes `entity`,
 currency becomes `unit`, account/session becomes dimensions.
 
-### MetricSpec
+### MetricSpec (Introduced In Tier R/S/T)
 
 Needed fields:
 
@@ -154,11 +157,13 @@ Needed fields:
 - visualization hints
 - privacy level
 
-Current state:
+Current status:
 
-Metrics are normal functions taking `sqlite3.Connection`, for example
-[totals.py](../../src/finance/analysis/totals.py#L97) and
-[trends.py](../../src/finance/analysis/trends.py#L56).
+Tier R/S/T added `MetricSpec` and `MetricRegistry` in
+[core/analytics.py](../../src/finance/core/analytics.py), and finance metric
+specs for monthly totals, subscription streams, and merchant outflow in
+[metric_specs.py](../../src/finance/analysis/metric_specs.py). Metrics are
+still normal functions taking `sqlite3.Connection`.
 
 ### Taxonomy Metadata
 
@@ -187,16 +192,17 @@ Needed registration points:
 
 ## Staged Platform Roadmap
 
-1. Keep finance behavior intact. Introduce platform vocabulary beside it:
-   `CanonicalEvent`, `Entity`, `DatasetAdapter`, `MetricSpec`, `Taxonomy`.
-2. Formalize existing finance outputs with schemas. Do not rewrite all
-   algorithms yet.
-3. Move category behavior into richer taxonomy metadata.
-4. Put a real data-access boundary under Stage C: either metrics consume
+1. Done in Tier R/S/T: keep finance behavior intact and introduce platform
+   vocabulary beside it with `CanonicalEvent`, `DatasetAdapter`, and
+   `MetricSpec`.
+2. Done in Tier R/S/T: formalize several existing finance outputs with
+   metric specs without rewriting algorithms.
+3. Done in Tier R/S/T: prove a second non-finance adapter with usage-event
+   CSV rows.
+4. Next: move category behavior into richer taxonomy metadata.
+5. Next: put a real data-access boundary under Stage C: either metrics consume
    `load_transactions/load_events`, or each metric declares direct SQL
    dependencies.
-5. Extract finance plugin pieces: EB adapter, bank profiles, memo parser,
+6. Extract finance plugin pieces: EB adapter, bank profiles, memo parser,
    merchant resolver, finance taxonomy, subscription metrics, finance pages.
-6. Prove it with a second small domain before broad refactors. Good test
-   domains: CSV product usage events, GitHub issue analytics, or SaaS usage
-   billing events.
+7. Build a real non-finance dashboard path before broad refactors.

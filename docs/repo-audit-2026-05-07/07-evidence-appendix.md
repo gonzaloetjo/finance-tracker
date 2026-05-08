@@ -6,19 +6,19 @@ Key source files by line count:
 
 | File | Lines |
 |---|---:|
-| `src/finance/cli.py` | 1551 |
-| `src/finance/web/dashboard.py` | 835 |
-| `src/finance/analysis/merchants.py` | 454 |
-| `src/finance/llm/categorize.py` | 312 |
-| `src/finance/analysis/streams.py` | 301 |
+| `src/finance/cli.py` | 1568 |
+| `src/finance/web/dashboard.py` | 871 |
+| `src/finance/analysis/merchants.py` | 462 |
+| `src/finance/llm/categorize.py` | 313 |
+| `src/finance/analysis/streams.py` | 311 |
 | `src/finance/analysis/subscriptions.py` | 279 |
 | `src/finance/llm/client.py` | 256 |
 | `src/finance/analysis/totals.py` | 251 |
 
 Test suite:
 
-- 24 `tests/test_*.py` files.
-- 209 tests passing after Tier Q.
+- 26 `tests/test_*.py` files.
+- 218 tests passing after Tier R/S/T.
 - 70% total coverage.
 
 ## Verification Results
@@ -27,7 +27,7 @@ Test suite:
 ruff check .                                      passed
 mypy src/finance                                  passed
 vulture src/finance --min-confidence 80           passed
-pytest -q                                         209 passed
+pytest -q                                         218 passed
 pytest --cov=finance ...                          initial audit: 207 passed, 70% coverage
 pip-audit --skip-editable --ignore-vuln CVE-2026-3219
                                                   no known vulnerabilities
@@ -79,20 +79,24 @@ now reports no known vulnerabilities. The ignore is retained because
 | LLM memo prompt construction | [categorize.py](../../src/finance/llm/categorize.py#L131) |
 | Claude CLI WebSearch instruction | [providers.py](../../src/finance/llm/providers.py#L83) |
 | Raw transaction JSON persistence | [sync.py](../../src/finance/sync.py#L109) |
-| DB creation lacks chmod | [store.py](../../src/finance/db/store.py#L24) |
-| Partial sync risk | [sync.py](../../src/finance/sync.py#L80), [sync.py](../../src/finance/sync.py#L123) |
+| DB private chmod | [store.py](../../src/finance/db/store.py#L27) |
+| Atomic sync failure handling | [sync.py](../../src/finance/sync.py#L77), [sync.py](../../src/finance/sync.py#L134) |
 | Fuzzy match per unknown merchant | [merchants.py](../../src/finance/analysis/merchants.py#L132) |
 | Full stream scan | [streams.py](../../src/finance/analysis/streams.py#L114) |
 | DataFrame hydration | [io.py](../../src/finance/analysis/io.py#L65) |
-| No WAL/busy timeout | [store.py](../../src/finance/db/store.py#L24) |
-| Limited indexes | [schema.sql](../../src/finance/db/schema.sql#L48) |
+| WAL/busy timeout | [store.py](../../src/finance/db/store.py#L38) |
+| Operational indexes | [schema.sql](../../src/finance/db/schema.sql#L50) |
 | Shell script failure tracking | [finance-all.sh](../../scripts/finance-all.sh#L32) |
 | Shell script current LLM cost SQL | [finance-all.sh](../../scripts/finance-all.sh#L121) |
 | Threshold constant | [categorize.py](../../src/finance/llm/categorize.py#L35) |
-| Ad hoc migrations | [store.py](../../src/finance/db/store.py#L32) |
+| Schema migrations | [store.py](../../src/finance/db/store.py#L88) |
 | Direct finance schema | [schema.sql](../../src/finance/db/schema.sql#L34) |
 | Hardcoded finance nav | [base.html](../../src/finance/web/templates/base.html#L45) |
 | CI blocks pip-audit except no-fixed-version pip CVE | [ci.yml](../../.github/workflows/ci.yml#L29) |
+| DB-backed locks | [store.py](../../src/finance/db/store.py#L126) |
+| Analytics contracts | [analytics.py](../../src/finance/core/analytics.py#L11) |
+| Usage adapter proof | [usage.py](../../src/finance/core/usage.py#L19) |
+| Finance metric specs | [metric_specs.py](../../src/finance/analysis/metric_specs.py#L5) |
 
 ## Contrarian Agent Consensus
 

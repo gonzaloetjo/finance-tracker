@@ -1199,12 +1199,76 @@ large refactors, and platform contracts for later tiers.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_web_flow.py tests/test_web_dashboard.py tests/test_llm_categorize.py -q` — 54 / 54 passing.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` — 209 / 209 passing.
 
-### Deferred to later roadmap tiers
+### Closed by the next roadmap pass
 
-- **Tier R:** sync partial-failure semantics, SQLite WAL / busy timeout,
-  hot indexes, and DB-backed job locks.
-- **Tier S:** split `cli.py` / `web/dashboard.py` through service
-  extraction, add migration runner, and stream-integrity tests.
-- **Tier T:** introduce platform contracts (`CanonicalEvent`,
-  `DatasetAdapter`, `MetricSpec`) and prove them with a second small
-  analytics domain.
+- **Tier R/S/T:** landed in `95e7c7a` and recorded below.
+
+---
+
+## Tier R/S/T — operations, migration, and analytics contracts
+
+After Tier Q removed the immediate security/doc drift items, this pass
+implemented the remaining roadmap tiers that could be done safely without
+turning the app into a different product.
+
+### Findings addressed
+
+1. **Account sync could commit partial transaction rows after a later page
+   failure.** `sync_account()` now records the run first, then wraps the
+   account's transaction inserts and success update in an explicit
+   transaction. On error it rolls back inserted rows and records fetched
+   count/date range on the failed `sync_runs` row.
+2. **Long jobs had no DB-backed overlap guard.** Added `job_locks` with
+   expiry cleanup and wired it into all-account sync, CLI/web reenrich, and
+   CLI/web LLM categorization.
+3. **SQLite was not concurrency-tuned.** Connections now set foreign keys,
+   WAL, `busy_timeout`, connection timeout, and `synchronous=NORMAL`; DB
+   directories/files are chmodded best-effort private.
+4. **Common operational queries lacked supporting indexes.** Added global
+   transaction date, sync-run account/start, lock-expiry, and LLM
+   status/start indexes.
+5. **Schema evolution was still ad hoc.** Added `schema_migrations`, a
+   tracked migration registry for existing additive columns, and old-schema
+   migration tests.
+6. **Merchant merges could leave stream identity incoherent.** Merges now
+   clear affected stream references, delete stale stream rows, recompute
+   streams, and tests assert no dangling `tx_enrichment.stream_id`.
+7. **Enrichment repeated expensive merchant normalization decisions.** The
+   enrichment loop now caches repeated raw merchant resolutions within a run.
+8. **Reusable analytics contracts were missing.** Added `finance.core`
+   contracts (`CanonicalEvent`, `DatasetAdapter`, `MetricSpec`,
+   `MetricRegistry`), finance metric specs, and a non-finance usage-event CSV
+   adapter as the second-domain proof.
+9. **Enable Banking transient failures were all fatal.** GET/DELETE requests
+   now retry bounded 429/5xx/network timeout failures with exponential
+   backoff and `Retry-After` support.
+
+### Changes
+
+- `95e7c7a` — `feat(audit): land tiers r s t`.
+  Implemented atomic per-account sync, sync/enrich/LLM locks, SQLite WAL and
+  indexes, migration tracking, stream cleanup after merchant merge, EB
+  retries, intra-run merchant cache, core analytics contracts, finance metric
+  specs, and a usage-event adapter proof. Added regression tests for DB
+  pragmas/migrations/locks, partial sync rollback, held sync locks, EB retry,
+  merge stream integrity, and platform contracts.
+
+### Verification
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run mypy src/finance` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run vulture src/finance --min-confidence 80` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_db_store.py tests/test_sync.py tests/test_eb_client.py tests/test_analysis_merchants_ops.py tests/test_core_analytics.py -q` — 34 / 34 passing.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` — 218 / 218 passing.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219` — no known vulnerabilities found.
+- `bash -n scripts/finance-all.sh` — clean.
+
+### Still intentionally deferred
+
+- Full auth/CSRF/CSP and CDN vendoring remain the next security boundary.
+- Sync, reenrich, and LLM still run inline in requests/commands; locks prevent
+  overlap, but there is not yet a background worker/job queue.
+- `cli.py` and `web/dashboard.py` are still large modules. This pass added
+  operational guards around them, not a route/command split.
+- The analytics core is a contract layer plus proof adapter, not a full plugin
+  runtime or non-finance dashboard.

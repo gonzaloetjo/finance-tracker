@@ -22,28 +22,28 @@ The repo is clean and coherent for a single-user, local personal finance
 tool. It has strong domain tests, clear SQLite/Pandas analysis paths,
 age-encrypted Enable Banking key handling, and useful LLM isolation.
 
-It is not currently safe to expose beyond localhost, not operationally
-robust under overlapping jobs, and not yet a reusable analytics platform.
-The largest gaps are explicit web hardening, data/LLM privacy boundaries,
-sync/job concurrency, schema/migration discipline, and domain-neutral
-analytics contracts.
+It is not currently safe to expose beyond localhost, and it is still not a
+full reusable analytics platform. Tier R/S/T improved operational
+robustness and added analytics contracts, but the largest remaining gaps are
+explicit web hardening, data/LLM privacy boundaries, background job
+execution, route/CLI decomposition, and plugin/runtime integration.
 
 ## Roadmap Status
 
 - **Tier Q landed:** security baseline, dependency audit fixes, threshold
   docs drift, masked IBAN display, escaped dynamic HTML fragments, callback
   access-log reduction, and `finance-all.sh` hardening.
-- **Tier R planned:** job safety, partial-sync semantics, SQLite tuning,
-  indexes, and job locks.
-- **Tier S planned:** maintainability refactor prep for CLI/web and
-  migration discipline.
-- **Tier T planned:** reusable analytics contracts and a second-domain
-  platform spike.
+- **Tier R landed:** atomic per-account sync, DB-backed locks,
+  SQLite WAL/busy timeout/indexes, and EB retries.
+- **Tier S landed:** migration tracking/tests, stream-integrity cleanup
+  after merchant merges, and an enrichment cache.
+- **Tier T landed:** `finance.core` analytics contracts, finance metric
+  specs, and a usage-event CSV adapter proof.
 
 ## Current Verification Snapshot
 
 - `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .` passed.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run mypy src/finance` passed.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run vulture src/finance --min-confidence 80` passed.
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` passed: 209 tests.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` passed: 218 tests.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219` passed.

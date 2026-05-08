@@ -58,6 +58,20 @@ After the Tier Q security baseline:
 | Full pytest | Passed: 209 tests. |
 | pip-audit | Passed with explicit ignore for no-fixed-version `CVE-2026-3219`. |
 
+## Tier R/S/T Verification
+
+After the operations, migration, and analytics-contract pass:
+
+| Check | Result |
+|---|---|
+| Ruff | Passed for `src tests`. |
+| Mypy | Passed: no issues in 47 source files. |
+| Vulture | Passed: no output at `--min-confidence 80`. |
+| Focused pytest | Passed: 34 tests across DB store, sync, EB client, merchant ops, and core analytics. |
+| Full pytest | Passed: 218 tests. |
+| pip-audit | Passed with explicit ignore for no-fixed-version `CVE-2026-3219`. |
+| Shell syntax | `bash -n scripts/finance-all.sh` passed. |
+
 The first `uv` attempts failed because the default uv cache under
 `/home/genge/.cache/uv` was read-only in this sandbox. Re-running with
 `UV_CACHE_DIR=/tmp/uv-cache` resolved that.
@@ -87,8 +101,8 @@ Coverage is strong in domain modules and weak around user entry points:
 
 ## Constraints
 
-- The initial audit did not modify application code. Tier Q later applied
-  the first remediation pass and is recorded in `AUDIT.md`.
+- The initial audit did not modify application code. Tier Q and Tier R/S/T
+  later applied remediation passes and are recorded in `AUDIT.md`.
 - It did not attempt live Enable Banking calls.
 - It did not inspect private history beyond local files in this public mirror.
 - `pip-audit` required network access and was run after approval.

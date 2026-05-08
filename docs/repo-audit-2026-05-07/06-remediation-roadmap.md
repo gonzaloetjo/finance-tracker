@@ -8,17 +8,21 @@
 | Done Q | Fix LLM threshold docs/code drift. | Tier Q aligned docs/prose to implemented `0.73`. | `llm/categorize.py`, `README.md` |
 | Done Q | Mask IBANs in web UI. | Tier Q masks account display. | `_account_row.html`, tests |
 | Done Q | Escape direct HTML fragments. | Tier Q escapes provider/local error fragments. | `web/dashboard.py` |
+| Done R | Fix partial sync transaction semantics. | Tier R made account sync inserts atomic and added rollback tests. | `sync.py`, tests |
+| Done R | Add job locks for sync/enrich/LLM. | Tier R added DB-backed expiry locks for current long jobs. | `db/store.py`, `sync.py`, `web/dashboard.py`, `cli.py` |
+| Done R | Enable SQLite WAL/busy timeout and add hot indexes. | Tier R added connection pragmas and date/progress/sync indexes. | `db/store.py`, `db/schema.sql` |
+| Done R | Add EB retry/backoff. | Tier R retries idempotent transient EB calls. | `eb/client.py`, tests |
+| Done S | Add migration version table/runner. | Tier S added `schema_migrations`, migration registry, and old-schema tests. | `db/store.py`, tests |
+| Done S | Fix stream integrity after merchant merges. | Tier S recomputes affected streams and tests dangling refs. | `analysis/merchants.py`, `analysis/streams.py`, tests |
+| Done T | Formalize analytics contracts. | Tier T added `CanonicalEvent`, `DatasetAdapter`, `MetricSpec`, finance metric specs, and a usage CSV proof. | `core/*`, `analysis/metric_specs.py`, tests |
 | P1 | Add local auth and CSRF/origin checks. | Required before any non-loopback exposure and useful even on localhost. | `web/app.py`, templates |
 | P1 | Vendor JS assets and add CSP. | CDN script compromise can read bank data. | `web/templates/base.html`, static assets |
 | P1 | Define LLM privacy/minimization boundary. | Raw memos and merchant context leave the machine. | `llm/categorize.py`, `llm/providers.py`, web settings |
-| P1 | Fix partial sync transaction semantics. | Failed account sync can commit partial rows. | `sync.py`, tests |
-| P1 | Add job locks/background jobs for sync/enrich/LLM. | Prevent overlapping long operations and blocked web requests. | `db/schema.sql`, `sync.py`, `web/*`, `llm/*` |
-| P1 | Enable SQLite WAL/busy timeout and add hot indexes. | Improve local concurrency and larger histories. | `db/store.py`, `db/schema.sql` |
-| P2 | Add migration version table/runner. | Current additive migration approach will not scale. | `db/store.py`, `db/migrations/*` |
+| P1 | Move locked long jobs to background execution. | Locks prevent overlap, but requests still block until work finishes. | `web/*`, new job worker |
 | P2 | Split `cli.py` by command group through service functions. | User entry points are large and under-tested. | `cli.py`, new `cli/*` or `services/*` |
 | P2 | Split `web/dashboard.py` by route family. | Reduce mixed route/SQL/HTML/LLM surface. | `web/dashboard.py`, new route modules |
-| P2 | Batch merchant normalization and stream recomputation. | Avoid O(transactions x merchants) enrichment growth. | `analysis/merchants.py`, `analysis/enrich.py`, `analysis/streams.py` |
-| P2 | Formalize analytics contracts. | Required for reuse beyond finance. | new `core/*`, `analysis/*` |
+| P2 | Batch merchant normalization and stream recomputation further. | Tier S added a raw merchant cache; full preloading/incremental streams remain. | `analysis/merchants.py`, `analysis/enrich.py`, `analysis/streams.py` |
+| P2 | Build plugin/runtime layer on analytics contracts. | Tier T added contracts, not a full plugin/dashboard runtime. | `core/*`, `web/*` |
 
 ## 30-Day Plan
 
@@ -29,17 +33,18 @@
 5. Done in Tier Q: disable callback access logs by default.
 6. Done in Tier Q: fix `scripts/finance-all.sh` failure handling and stale
    `cache_read_tokens` query.
-7. Next for Tier R: add tests for partial account sync failure.
+7. Done in Tier R/S/T: partial sync rollback, DB locks, WAL/indexes,
+   migrations, stream-integrity tests, EB retries, and analytics contracts.
 
 ## 60-Day Plan
 
 1. Add auth and CSRF/origin checks.
 2. Vendor Tailwind/HTMX/Chart.js or replace the CDN strategy.
 3. Add CSP/security headers.
-4. Add SQLite WAL, busy timeout, and hot indexes.
-5. Add job/lock table and prevent overlapping sync/enrich/LLM jobs.
-6. Add EB retry/backoff with retry counts in `sync_runs`.
-7. Add old-schema migration tests.
+4. Move sync/reenrich/LLM jobs to background execution and persistent job
+   progress.
+5. Add retry/page counts to `sync_runs`.
+6. Add old-schema migration tests for the next non-additive migration.
 
 ## 90-Day Plan
 
@@ -47,10 +52,9 @@
 2. Split CLI command groups after extracting service functions.
 3. Split dashboard route families.
 4. Batch merchant normalization and stream updates.
-5. Introduce `CanonicalEvent`, `DatasetAdapter`, `MetricSpec`, and richer
-   taxonomy metadata.
-6. Build one non-finance proof-of-concept dataset with two metrics and one
-   dashboard page.
+5. Extend the new `CanonicalEvent`, `DatasetAdapter`, and `MetricSpec`
+   contracts into a plugin/runtime layer.
+6. Build one non-finance dashboard page on top of the usage-event adapter.
 
 ## Suggested Issue Batches
 
@@ -62,24 +66,23 @@
 - Escaped direct dynamic HTML fragments found in this pass.
 - Disabled callback access logs by default.
 
-### Batch B: Job Safety
+### Batch B: Job Safety (Tier R Done, Worker Still Open)
 
-- Add job locks.
-- Fix partial sync commits.
-- Add SQLite WAL/busy timeout.
-- Add EB retry/backoff.
-- Add tests for overlapping and failed syncs.
+- Done: job locks, partial sync rollback, WAL/busy timeout, EB retry/backoff,
+  and tests for held locks/failed syncs.
+- Open: background worker/job queue and richer persisted progress.
 
-### Batch C: Maintainability
+### Batch C: Maintainability (Tier S Partly Done)
 
+- Done: migration tracking/tests and stream-integrity cleanup.
 - Extract CLI service functions.
 - Add CLI command-contract tests.
 - Split dashboard route modules.
-- Add migration runner and migration tests.
 
-### Batch D: Analytics Platform Spike
+### Batch D: Analytics Platform Spike (Tier T Partly Done)
 
-- Define `CanonicalEvent` and `MetricSpec`.
+- Done: define `CanonicalEvent`, `DatasetAdapter`, `MetricSpec`, and
+  finance metric specs.
+- Done: add usage-event CSV adapter proof.
 - Add taxonomy metadata.
-- Convert one existing finance metric to declare a metric spec.
-- Add a second small dataset as proof.
+- Add plugin/runtime registration and a second-domain dashboard page.
