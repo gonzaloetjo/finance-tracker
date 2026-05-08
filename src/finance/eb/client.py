@@ -33,12 +33,16 @@ class EnableBankingClient:
         base_url: str = EB_BASE_URL,
         transport: httpx.BaseTransport | None = None,
         token_ttl: int = 3600,
+        max_retries: int = 2,
+        retry_backoff: float = 0.25,
     ):
         self.app_id = app_id
         self._key = private_key_pem
         self._token: str | None = None
         self._token_exp: float = 0.0
         self._ttl = token_ttl
+        self._max_retries = max_retries
+        self._retry_backoff = retry_backoff
         self._http = httpx.Client(
             base_url=base_url,
             timeout=30.0,
@@ -57,7 +61,28 @@ class EnableBankingClient:
     def request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         headers = kwargs.pop("headers", {}) or {}
         headers.update(self._token_headers())
-        resp = self._http.request(method, path, headers=headers, **kwargs)
+        attempt = 0
+        while True:
+            try:
+                resp = self._http.request(method, path, headers=headers, **kwargs)
+            except (httpx.TimeoutException, httpx.NetworkError):
+                if attempt >= self._max_retries or not _method_is_retryable(method):
+                    raise
+                time.sleep(self._retry_backoff * (2**attempt))
+                attempt += 1
+                continue
+
+            if (
+                attempt < self._max_retries
+                and _method_is_retryable(method)
+                and _status_is_retryable(resp.status_code)
+            ):
+                delay = _retry_delay(resp, self._retry_backoff * (2**attempt))
+                resp.close()
+                time.sleep(delay)
+                attempt += 1
+                continue
+            break
         if resp.status_code >= 400:
             # Surface the body, but keep account identifiers out of exception strings.
             raise httpx.HTTPStatusError(
@@ -84,3 +109,21 @@ class EnableBankingClient:
 
     def __exit__(self, *_exc: Any) -> None:
         self.close()
+
+
+def _method_is_retryable(method: str) -> bool:
+    return method.upper() in {"GET", "DELETE"}
+
+
+def _status_is_retryable(status_code: int) -> bool:
+    return status_code == 429 or 500 <= status_code <= 599
+
+
+def _retry_delay(resp: httpx.Response, fallback: float) -> float:
+    retry_after = resp.headers.get("retry-after")
+    if retry_after:
+        try:
+            return max(0.0, min(float(retry_after), 5.0))
+        except ValueError:
+            pass
+    return fallback

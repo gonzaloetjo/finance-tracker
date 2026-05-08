@@ -102,8 +102,11 @@ def enrich_transactions(
 
     # Step 1+2+3: parse_memo → normalize_merchant → write tx_enrichment.
     # Resolve the BankProfile once per account (one SQL per distinct account
-    # in the batch), not per transaction.
+    # in the batch), not per transaction. Resolve repeated raw merchant
+    # strings once too; fuzzy matching against all canonicals is the expensive
+    # part of this loop on larger histories.
     profile_cache: dict[str, BankProfile] = {}
+    merchant_cache: dict[str, int] = {}
     classified_count = 0
     for row in rows:
         tx_id = row["transaction_id"]
@@ -123,7 +126,10 @@ def enrich_transactions(
         )
         merchant_id = None
         if parsed.merchant_raw:
-            merchant_id = normalize_merchant(parsed.merchant_raw, conn)
+            merchant_id = merchant_cache.get(parsed.merchant_raw)
+            if merchant_id is None:
+                merchant_id = normalize_merchant(parsed.merchant_raw, conn)
+                merchant_cache[parsed.merchant_raw] = merchant_id
 
             # Classify the merchant (writes to merchants table). Defensive
             # guard: `normalize_merchant` just inserted/looked up this row,

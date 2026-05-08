@@ -259,7 +259,18 @@ async def merchants_llm_categorize(request: Request, provider: str = "api"):
 
     try:
         with _db(request) as conn:
-            summary = categorize_uncategorized(conn, client=llm, limit=150)
+            lock = store.try_acquire_job_lock(conn, "llm:categorize", ttl_seconds=3600)
+            if lock is None:
+                return HTMLResponse(
+                    '<div class="bg-amber-50 text-amber-900 border border-amber-200 rounded px-4 py-3">'
+                    '<div class="font-semibold">LLM categorization already running</div>'
+                    '<div class="text-sm mt-1">Wait for the current run to finish.</div>'
+                    "</div>"
+                )
+            try:
+                summary = categorize_uncategorized(conn, client=llm, limit=150)
+            finally:
+                store.release_job_lock(conn, lock)
     except Exception as e:
         message = _escape(redact_key(str(e)), limit=240)
         return HTMLResponse(
@@ -719,7 +730,18 @@ async def rules_reenrich(request: Request):
     settings = get_settings()
     rules = load_rules(settings.rules_path)
     with _db(request) as conn:
-        summary = enrich_transactions(conn, reenrich=True, rules=rules)
+        lock = store.try_acquire_job_lock(conn, "enrich:all", ttl_seconds=1800)
+        if lock is None:
+            return HTMLResponse(
+                '<div class="border border-amber-200 bg-amber-50 rounded px-4 py-3">'
+                '<div class="font-semibold text-amber-900">Re-enrich already running</div>'
+                '<p class="text-sm mt-1">Wait for the current run to finish.</p>'
+                "</div>"
+            )
+        try:
+            summary = enrich_transactions(conn, reenrich=True, rules=rules)
+        finally:
+            store.release_job_lock(conn, lock)
     return _templates(request).TemplateResponse(
         request,
         "_reenrich_result.html",

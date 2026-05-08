@@ -215,7 +215,7 @@ def sync(
     settings = get_settings()
     cfg = load_config(settings)
     rules = load_rules(settings.rules_path)
-    with _load_client(settings, cfg) as client, _open_db() as conn, conn:
+    with _load_client(settings, cfg) as client, _open_db() as conn:
         results = sync_all_accounts(conn, client, cold_start_days=cold_start_days, rules=rules)
 
     if not results:
@@ -459,8 +459,16 @@ def analyze_enrich(
     from finance.analysis.enrich import enrich_transactions
 
     rules = load_rules(get_settings().rules_path)
-    with _open_db() as conn, conn:
-        summary = enrich_transactions(conn, since=since, reenrich=reenrich, rules=rules)
+    with _open_db() as conn:
+        lock = store.try_acquire_job_lock(conn, "enrich:all", ttl_seconds=1800)
+        if lock is None:
+            typer.echo("enrichment already running", err=True)
+            raise typer.Exit(code=1)
+        try:
+            with conn:
+                summary = enrich_transactions(conn, since=since, reenrich=reenrich, rules=rules)
+        finally:
+            store.release_job_lock(conn, lock)
 
     typer.echo(f"  processed:    {summary.newly_enriched}")
     typer.echo(f"  already enr.: {summary.already_enriched}")
@@ -1396,14 +1404,22 @@ def enrich_llm_categorize(
         raise typer.Exit(code=1) from None
 
     chosen_model = model or DEFAULT_CATEGORIZE_MODEL
-    with _open_db() as conn, conn:
-        summary = categorize_uncategorized(
-            conn,
-            client=llm,
-            limit=limit,
-            model=chosen_model,
-            dry_run=dry_run,
-        )
+    with _open_db() as conn:
+        lock = store.try_acquire_job_lock(conn, "llm:categorize", ttl_seconds=3600)
+        if lock is None:
+            typer.echo("LLM categorization already running", err=True)
+            raise typer.Exit(code=1)
+        try:
+            with conn:
+                summary = categorize_uncategorized(
+                    conn,
+                    client=llm,
+                    limit=limit,
+                    model=chosen_model,
+                    dry_run=dry_run,
+                )
+        finally:
+            store.release_job_lock(conn, lock)
 
     if summary.proposed == 0:
         typer.echo("Nothing to categorize — all merchants have a final category.")

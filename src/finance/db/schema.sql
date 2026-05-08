@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_tx_account_date
   ON transactions(account_uid, booking_date DESC);
+CREATE INDEX IF NOT EXISTS idx_tx_booking_date
+  ON transactions(booking_date DESC);
 
 CREATE TABLE IF NOT EXISTS sync_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,9 +56,27 @@ CREATE TABLE IF NOT EXISTS sync_runs (
   started_at TEXT NOT NULL,
   ended_at TEXT,
   transactions_added INTEGER,
+  transactions_fetched INTEGER,
+  date_from TEXT,
   status TEXT NOT NULL,
   error TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_sync_runs_account_started
+  ON sync_runs(account_uid, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS job_locks (
+  lock_key TEXT PRIMARY KEY,
+  owner TEXT NOT NULL,
+  acquired_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_job_locks_expires
+  ON job_locks(expires_at);
 
 -- Phase 6 — enrichment layer. Persistent merchant identity + category + stream membership.
 CREATE TABLE IF NOT EXISTS merchants (
@@ -152,3 +172,5 @@ CREATE TABLE IF NOT EXISTS llm_runs (
   status TEXT NOT NULL,            -- ok | error
   error TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_llm_runs_status_started
+  ON llm_runs(status, started_at DESC);

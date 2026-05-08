@@ -287,6 +287,16 @@ def group_streams(conn: sqlite3.Connection) -> list[StreamInfo]:
         for tid in tx_ids:
             conn.execute("UPDATE tx_enrichment SET stream_id = ? WHERE tx_id = ?", (sid, tid))
 
+    live_stream_ids = list(groups)
+    if live_stream_ids:
+        placeholders = ",".join("?" for _ in live_stream_ids)
+        conn.execute(
+            f"DELETE FROM streams WHERE stream_id NOT IN ({placeholders})",
+            live_stream_ids,
+        )
+    else:
+        conn.execute("DELETE FROM streams")
+
     return results
 
 

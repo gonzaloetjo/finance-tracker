@@ -7,7 +7,7 @@ from finance.auth.keys import generate_keypair
 from finance.db import store
 from finance.eb.client import EnableBankingClient
 from finance.eb.models import Account, AspspRef, SessionResponse
-from finance.sync import sync_account
+from finance.sync import sync_account, sync_all_accounts
 
 
 def _seed_session(conn, account_uid="acc-1"):
@@ -172,6 +172,37 @@ def test_sync_records_error(conn):
     assert "500" in run["error"]
 
 
+def test_sync_rolls_back_partial_page_on_later_failure(conn):
+    responses = [
+        httpx.Response(200, json=PAGE1),
+        httpx.Response(500, json={"error": "page 2 down"}),
+    ]
+
+    def handler(_req):
+        return responses.pop(0)
+
+    with _make_client(handler) as client:
+        result = sync_account(conn, client, "acc-1")
+
+    assert result.status == "error"
+    assert result.added == 0
+    assert result.fetched == 2
+    count = conn.execute("SELECT COUNT(*) AS n FROM transactions").fetchone()["n"]
+    assert count == 0
+    run = conn.execute(
+        """
+        SELECT status, transactions_added, transactions_fetched, date_from
+        FROM sync_runs
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    assert run["status"] == "error"
+    assert run["transactions_added"] == 0
+    assert run["transactions_fetched"] == 2
+    assert run["date_from"] is not None
+
+
 def test_transaction_without_id_gets_stable_hash_key(conn):
     tx = {
         "transaction_amount": {"currency": "EUR", "amount": "9.99"},
@@ -197,8 +228,6 @@ def test_sync_all_accounts_logs_enrich_failure_and_continues(conn, monkeypatch, 
     committed per-account, so the data is on disk and a manual
     `finance analyze enrich` will recover the merchant layer.
     """
-    from finance.sync import sync_all_accounts
-
     def boom(*_args, **_kwargs):
         raise RuntimeError("simulated enrich crash")
 
@@ -237,3 +266,21 @@ def test_sync_all_accounts_logs_enrich_failure_and_continues(conn, monkeypatch, 
         "SELECT transaction_id FROM transactions WHERE transaction_id = 'tx-en-1'"
     ).fetchone()
     assert row is not None
+
+
+def test_sync_all_accounts_returns_error_when_lock_is_held(conn):
+    lock = store.try_acquire_job_lock(conn, "sync:all", owner="test")
+    assert lock is not None
+
+    def handler(_req):
+        raise AssertionError("sync should not call Enable Banking while locked")
+
+    try:
+        with _make_client(handler) as client:
+            results = sync_all_accounts(conn, client)
+    finally:
+        store.release_job_lock(conn, lock)
+
+    assert len(results) == 1
+    assert results[0].status == "error"
+    assert results[0].error == "sync already running"

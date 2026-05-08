@@ -360,8 +360,7 @@ def rename_canonical(conn: sqlite3.Connection, old: str, new: str) -> bool:
 
 
 def merge_merchants(conn: sqlite3.Connection, src: str, dst: str) -> bool:
-    """Merge merchant `src` into `dst`: re-point aliases, tx_enrichment, streams,
-    then delete the source merchant row. Returns True on success."""
+    """Merge merchant `src` into `dst` and recompute affected stream ids."""
     src_row = conn.execute(
         "SELECT merchant_id FROM merchants WHERE canonical_name = ?", (src,)
     ).fetchone()
@@ -378,13 +377,22 @@ def merge_merchants(conn: sqlite3.Connection, src: str, dst: str) -> bool:
         "UPDATE merchant_aliases SET merchant_id = ? WHERE merchant_id = ?", (dst_id, src_id)
     )
     conn.execute(
-        "UPDATE tx_enrichment    SET merchant_id = ? WHERE merchant_id = ?", (dst_id, src_id)
+        "UPDATE tx_enrichment SET merchant_id = ?, stream_id = NULL WHERE merchant_id = ?",
+        (dst_id, src_id),
     )
     conn.execute(
-        "UPDATE streams          SET merchant_id = ? WHERE merchant_id = ?", (dst_id, src_id)
+        "UPDATE tx_enrichment SET stream_id = NULL WHERE merchant_id = ?",
+        (dst_id,),
+    )
+    conn.execute(
+        "DELETE FROM streams WHERE merchant_id IN (?, ?)",
+        (src_id, dst_id),
     )
     conn.execute("DELETE FROM merchants WHERE merchant_id = ?", (src_id,))
     conn.execute("UPDATE merchants SET updated_at = ? WHERE merchant_id = ?", (now, dst_id))
+    from finance.analysis.streams import group_streams
+
+    group_streams(conn)
     conn.commit()
     return True
 

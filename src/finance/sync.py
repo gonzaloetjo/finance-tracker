@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
 from finance.categorize import Rule
+from finance.db import store
 from finance.eb.client import EnableBankingClient
 from finance.eb.flows import iter_transactions
 
@@ -73,10 +74,13 @@ def sync_account(
     run_id = cur.lastrowid
     conn.commit()
 
+    added = 0
+    fetched = 0
+    date_from_iso: str | None = None
     try:
         date_from = _last_booking_date(conn, account_uid) or _cold_start_from(cold_start_days)
-        added = 0
-        fetched = 0
+        date_from_iso = date_from.isoformat()
+        conn.execute("BEGIN")
         for tx in iter_transactions(client, account_uid, date_from=date_from):
             fetched += 1
             tx_id = _transaction_key(tx)
@@ -114,19 +118,37 @@ def sync_account(
                 added += 1
 
         conn.execute(
-            "UPDATE sync_runs SET ended_at = ?, transactions_added = ?, status = 'ok' WHERE id = ?",
-            (_now(), added, run_id),
+            """
+            UPDATE sync_runs
+               SET ended_at = ?,
+                   transactions_added = ?,
+                   transactions_fetched = ?,
+                   date_from = ?,
+                   status = 'ok'
+             WHERE id = ?
+            """,
+            (_now(), added, fetched, date_from_iso, run_id),
         )
         conn.commit()
         return SyncResult(account_uid=account_uid, added=added, fetched=fetched, status="ok")
 
     except Exception as e:  # noqa: BLE001
+        conn.rollback()
         conn.execute(
-            "UPDATE sync_runs SET ended_at = ?, status = 'error', error = ? WHERE id = ?",
-            (_now(), str(e), run_id),
+            """
+            UPDATE sync_runs
+               SET ended_at = ?,
+                   transactions_added = 0,
+                   transactions_fetched = ?,
+                   date_from = ?,
+                   status = 'error',
+                   error = ?
+             WHERE id = ?
+            """,
+            (_now(), fetched, date_from_iso, str(e), run_id),
         )
         conn.commit()
-        return SyncResult(account_uid=account_uid, added=0, fetched=0, status="error", error=str(e))
+        return SyncResult(account_uid=account_uid, added=0, fetched=fetched, status="error", error=str(e))
 
 
 def sync_all_accounts(
@@ -134,7 +156,22 @@ def sync_all_accounts(
     client: EnableBankingClient,
     cold_start_days: int = 90,
     rules: list[Rule] | None = None,
+    use_lock: bool = True,
 ) -> list[SyncResult]:
+    lock = None
+    if use_lock:
+        lock = store.try_acquire_job_lock(conn, "sync:all", ttl_seconds=3600)
+        if lock is None:
+            return [
+                SyncResult(
+                    account_uid="sync",
+                    added=0,
+                    fetched=0,
+                    status="error",
+                    error="sync already running",
+                )
+            ]
+
     rows = conn.execute(
         """
         SELECT a.account_uid FROM accounts a
@@ -142,28 +179,42 @@ def sync_all_accounts(
         WHERE s.revoked_at IS NULL
         """
     ).fetchall()
-    results = [sync_account(conn, client, r["account_uid"], cold_start_days) for r in rows]
+    try:
+        results = [sync_account(conn, client, r["account_uid"], cold_start_days) for r in rows]
 
-    # Auto-enrich newly synced transactions. Categorization rules apply at the
-    # merchant level (via `enrich_transactions` → `classify_merchant`); they
-    # are not applied during fetch.
-    any_added = any(r.added > 0 for r in results if r.status == "ok")
-    if any_added:
-        import sys
+        # Auto-enrich newly synced transactions. Categorization rules apply at the
+        # merchant level (via `enrich_transactions` → `classify_merchant`); they
+        # are not applied during fetch.
+        any_added = any(r.added > 0 for r in results if r.status == "ok")
+        if any_added:
+            import sys
 
-        from finance.analysis.enrich import enrich_transactions
+            from finance.analysis.enrich import enrich_transactions
 
-        # Sync rows are already committed per-account by `sync_account`. If
-        # auto-enrich raises here, surface a recovery hint to stderr instead
-        # of a full traceback — the user can re-run `finance analyze enrich`
-        # without losing the fetched transactions.
-        try:
-            enrich_transactions(conn, rules=rules)
-        except Exception as e:  # noqa: BLE001
-            print(
-                f"sync: auto-enrich failed ({e!r}) — "
-                "run 'finance analyze enrich' manually",
-                file=sys.stderr,
-            )
+            enrich_lock = store.try_acquire_job_lock(conn, "enrich:all", ttl_seconds=1800)
+            if enrich_lock is None:
+                print(
+                    "sync: auto-enrich skipped because enrichment is already running — "
+                    "run 'finance analyze enrich' manually if needed",
+                    file=sys.stderr,
+                )
+            else:
+                # Sync rows are already committed per-account by `sync_account`. If
+                # auto-enrich raises here, surface a recovery hint to stderr instead
+                # of a full traceback — the user can re-run `finance analyze enrich`
+                # without losing the fetched transactions.
+                try:
+                    enrich_transactions(conn, rules=rules)
+                except Exception as e:  # noqa: BLE001
+                    print(
+                        f"sync: auto-enrich failed ({e!r}) — "
+                        "run 'finance analyze enrich' manually",
+                        file=sys.stderr,
+                    )
+                finally:
+                    store.release_job_lock(conn, enrich_lock)
 
-    return results
+        return results
+    finally:
+        if lock is not None:
+            store.release_job_lock(conn, lock)

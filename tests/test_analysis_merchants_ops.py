@@ -134,6 +134,22 @@ def test_merge_repoints_everything(tmp_path):
         # tx_enrichment now points at target
         dd = deep_dive(conn, "FRANPRIX")
         assert dd["count"] >= 4  # 3 original + 1 merged
+        target_id = conn.execute(
+            "SELECT merchant_id FROM merchants WHERE canonical_name = 'FRANPRIX'"
+        ).fetchone()[0]
+        stream_rows = conn.execute("SELECT merchant_id FROM streams").fetchall()
+        assert stream_rows
+        assert {r["merchant_id"] for r in stream_rows} == {target_id}
+        dangling = conn.execute(
+            """
+            SELECT COUNT(*) AS n
+            FROM tx_enrichment e
+            LEFT JOIN streams s ON s.stream_id = e.stream_id
+            WHERE e.stream_id IS NOT NULL
+              AND s.stream_id IS NULL
+            """
+        ).fetchone()["n"]
+        assert dangling == 0
 
 
 def test_load_curated_merges_parses_yaml():

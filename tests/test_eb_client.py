@@ -92,6 +92,23 @@ def test_client_raises_on_error_status():
         list_aspsps(client, country="FR")
 
 
+def test_client_retries_transient_get_errors(monkeypatch):
+    monkeypatch.setattr("finance.eb.client.time.sleep", lambda _delay: None)
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(500, json={"error": "temporary"})
+        return httpx.Response(200, json={"aspsps": []})
+
+    with _make_client(handler) as client:
+        assert list_aspsps(client, country="FR") == []
+
+    assert calls == 2
+
+
 def test_client_error_message_redacts_iban_and_truncates_body():
     iban = "FR7630006000011234567890189"
 

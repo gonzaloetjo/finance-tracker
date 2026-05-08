@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from finance.eb.models import SessionResponse
 
@@ -21,23 +24,32 @@ def _now() -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _chmod_private(path: Path, mode: int) -> None:
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        # Best-effort privacy hardening. Some filesystems ignore chmod.
+        pass
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    _chmod_private(db_path.parent, 0o700)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    if db_path.exists():
+        _chmod_private(db_path, 0o600)
     return conn
 
 
 def init_schema(conn: sqlite3.Connection) -> None:
     schema = files("finance.db").joinpath("schema.sql").read_text()
     conn.executescript(schema)
-    # Additive migrations for columns introduced after initial release.
-    # SQLite's CREATE TABLE IF NOT EXISTS doesn't add missing columns.
-    _ensure_column(conn, "accounts", "excluded_from_spend", "INTEGER NOT NULL DEFAULT 0")
-    # User override for is_subscription: NULL=auto, 1=force-sub, 0=force-not-sub.
-    # Persists across re-enrichment so decisions stick.
-    _ensure_column(conn, "streams", "subscription_override", "INTEGER")
+    _apply_migrations(conn)
     conn.commit()
 
 
@@ -61,8 +73,40 @@ _ALLOWED_MIGRATIONS = frozenset(
     {
         ("accounts", "excluded_from_spend", "INTEGER NOT NULL DEFAULT 0"),
         ("streams", "subscription_override", "INTEGER"),
+        ("sync_runs", "transactions_fetched", "INTEGER"),
+        ("sync_runs", "date_from", "TEXT"),
     }
 )
+
+_MIGRATIONS = (
+    ("0001_accounts_excluded_from_spend", "accounts", "excluded_from_spend", "INTEGER NOT NULL DEFAULT 0"),
+    ("0002_streams_subscription_override", "streams", "subscription_override", "INTEGER"),
+    ("0003_sync_runs_transactions_fetched", "sync_runs", "transactions_fetched", "INTEGER"),
+    ("0004_sync_runs_date_from", "sync_runs", "date_from", "TEXT"),
+)
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          version TEXT PRIMARY KEY,
+          applied_at TEXT NOT NULL
+        )
+        """
+    )
+    applied = {
+        r["version"] for r in conn.execute("SELECT version FROM schema_migrations").fetchall()
+    }
+    now = _now()
+    for version, table, column, definition in _MIGRATIONS:
+        if version in applied:
+            continue
+        _ensure_column(conn, table, column, definition)
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (version, now),
+        )
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -77,6 +121,52 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
     cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
     if column not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+@dataclass(frozen=True)
+class JobLock:
+    lock_key: str
+    owner: str
+    acquired_at: str
+    expires_at: str
+
+
+def try_acquire_job_lock(
+    conn: sqlite3.Connection,
+    lock_key: str,
+    *,
+    ttl_seconds: int = 3600,
+    owner: str | None = None,
+) -> JobLock | None:
+    """Acquire a DB-backed long-job lock, returning None if it is held.
+
+    Expired locks are cleared on acquisition so a crashed process cannot block
+    the local app forever.
+    """
+    owner = owner or uuid4().hex
+    now_dt = datetime.now(UTC)
+    now = now_dt.isoformat()
+    expires = (now_dt + timedelta(seconds=ttl_seconds)).isoformat()
+    conn.execute("DELETE FROM job_locks WHERE lock_key = ? AND expires_at <= ?", (lock_key, now))
+    cur = conn.execute(
+        """
+        INSERT OR IGNORE INTO job_locks (lock_key, owner, acquired_at, expires_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (lock_key, owner, now, expires),
+    )
+    conn.commit()
+    if cur.rowcount == 0:
+        return None
+    return JobLock(lock_key=lock_key, owner=owner, acquired_at=now, expires_at=expires)
+
+
+def release_job_lock(conn: sqlite3.Connection, lock: JobLock) -> None:
+    conn.execute(
+        "DELETE FROM job_locks WHERE lock_key = ? AND owner = ?",
+        (lock.lock_key, lock.owner),
+    )
+    conn.commit()
 
 
 def persist_session(conn: sqlite3.Connection, session: SessionResponse) -> None:
