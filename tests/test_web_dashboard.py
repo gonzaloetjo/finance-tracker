@@ -69,8 +69,9 @@ def test_overview_empty(dashboard_client):
     client, _ = dashboard_client
     resp = client.get("/")
     assert resp.status_code == 200
-    # Tailwind + HTMX loaded, nav present
-    assert "htmx.org" in resp.text
+    # Local static assets loaded, nav present
+    assert "/static/app.css" in resp.text
+    assert "/static/app.js" in resp.text
     assert "Merchants" in resp.text
 
 

@@ -154,3 +154,71 @@ def test_callback_rejects_error_param(client_and_transport):
     client, _, _ = client_and_transport
     resp = client.get("/callback?error=access_denied")
     assert resp.status_code == 400
+
+
+def test_dashboard_auth_token_sets_cookie_and_strips_url(tmp_path):
+    def client_factory():  # pragma: no cover - not called
+        raise AssertionError("client_factory should not be called")
+
+    state = AppState(
+        client_factory=client_factory,
+        db_path=tmp_path / "finance.db",
+        callback_url="http://localhost:8000/callback",
+        auth_token="local-secret",
+        csrf_token="csrf-secret",
+    )
+    app = create_app(state)
+    client = ASGITestClient(app, follow_redirects=False)
+
+    locked = client.get("/")
+    assert locked.status_code == 401
+    assert "Dashboard locked" in locked.text
+
+    login = client.get("/?token=local-secret")
+    assert login.status_code == 303
+    assert login.headers["location"] == "/"
+    assert "finance_auth" in login.headers.get("set-cookie", "")
+
+    unlocked = client.get("/")
+    assert unlocked.status_code == 200
+    assert "Overview" in unlocked.text
+
+
+def test_unsafe_routes_require_csrf_when_auth_enabled(tmp_path):
+    def client_factory():  # pragma: no cover - rejected before use
+        raise AssertionError("client_factory should not be called")
+
+    state = AppState(
+        client_factory=client_factory,
+        db_path=tmp_path / "finance.db",
+        callback_url="http://localhost:8000/callback",
+        auth_token="local-secret",
+        csrf_token="csrf-secret",
+    )
+    app = create_app(state)
+    client = ASGITestClient(app, follow_redirects=False, auto_csrf=False)
+    assert client.get("/?token=local-secret").status_code == 303
+
+    missing = client.post("/sync")
+    assert missing.status_code == 403
+    assert "CSRF" in missing.text
+
+    wrong_origin = client.post(
+        "/sync",
+        headers={"X-CSRF-Token": "csrf-secret", "Origin": "http://evil.test"},
+    )
+    assert wrong_origin.status_code == 403
+    assert "Cross-site" in wrong_origin.text
+
+
+def test_security_headers_and_local_assets(client_and_transport):
+    client, _, _ = client_and_transport
+    resp = client.get("/")
+    assert resp.headers["x-frame-options"] == "DENY"
+    assert "script-src 'self'" in resp.headers["content-security-policy"]
+    assert "https://cdn.tailwindcss.com" not in resp.text
+    assert "unpkg.com/htmx" not in resp.text
+
+    asset = client.get("/static/app.js")
+    assert asset.status_code == 200
+    assert "X-CSRF-Token" in asset.text

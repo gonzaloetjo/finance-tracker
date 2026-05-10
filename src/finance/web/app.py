@@ -5,10 +5,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode
 
 import httpx
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from finance.categorize import Rule
@@ -30,6 +31,8 @@ class AppState:
     client_factory: Callable[[], EnableBankingClient]
     db_path: Path
     callback_url: str
+    auth_token: str | None = None
+    csrf_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     rules: list[Rule] = field(default_factory=list)
     pending: dict[str, PendingAuth] = field(default_factory=dict)
 
@@ -55,11 +58,153 @@ def _explain_eb_error(e: httpx.HTTPStatusError) -> str:
     return f"Enable Banking returned HTTP {status}: {body}"
 
 
+def _unsafe_method(method: str) -> bool:
+    return method.upper() not in {"GET", "HEAD", "OPTIONS", "TRACE"}
+
+
+def _same_origin(request: Request) -> bool:
+    origin = request.headers.get("origin")
+    if origin:
+        return origin == f"{request.url.scheme}://{request.headers.get('host', request.url.netloc)}"
+    fetch_site = request.headers.get("sec-fetch-site")
+    return fetch_site not in {"cross-site"}
+
+
+def _authenticated(request: Request, state: AppState) -> bool:
+    if state.auth_token is None:
+        return True
+    if request.cookies.get("finance_auth") == state.auth_token:
+        return True
+    auth = request.headers.get("authorization", "")
+    if auth == f"Bearer {state.auth_token}":
+        return True
+    return request.query_params.get("token") == state.auth_token
+
+
+async def _csrf_token_from_request(request: Request) -> str | None:
+    header = request.headers.get("x-csrf-token")
+    if header:
+        return header
+    query_token = request.query_params.get("_csrf")
+    if query_token:
+        return query_token
+    content_type = request.headers.get("content-type", "")
+    if "application/x-www-form-urlencoded" not in content_type:
+        return None
+    body = await request.body()
+    # Re-inject the consumed body for FastAPI's form parser.
+    consumed = False
+
+    async def receive() -> dict[str, object]:
+        nonlocal consumed
+        if consumed:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        consumed = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request._receive = receive  # type: ignore[attr-defined]
+    parsed = parse_qs(body.decode("utf-8", errors="replace"))
+    values = parsed.get("_csrf")
+    return values[0] if values else None
+
+
+def _strip_token_from_url(request: Request) -> str:
+    params = [
+        (key, value) for key, value in request.query_params.multi_items() if key != "token"
+    ]
+    query = urlencode(params, doseq=True)
+    return request.url.path + (f"?{query}" if query else "")
+
+
+def _set_auth_cookie(response: Response, state: AppState) -> None:
+    if state.auth_token is None:
+        return
+    response.set_cookie(
+        "finance_auth",
+        state.auth_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=60 * 60 * 12,
+    )
+
+
+def _add_security_headers(response: Response) -> None:
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'",
+    )
+
+
 def create_app(state: AppState) -> FastAPI:
     app = FastAPI(title="finance", docs_url=None, redoc_url=None)
     templates = Jinja2Templates(directory=_templates_dir())
     app.state.finance = state
     app.state.finance_templates = templates  # exposed to dashboard.py router
+
+    @app.middleware("http")
+    async def security_boundary(request: Request, call_next):
+        if request.url.path.startswith("/static/"):
+            response = await call_next(request)
+            _add_security_headers(response)
+            return response
+
+        token_login = (
+            state.auth_token is not None
+            and request.method == "GET"
+            and request.query_params.get("token") == state.auth_token
+        )
+        if token_login:
+            response = RedirectResponse(_strip_token_from_url(request), status_code=303)
+            _set_auth_cookie(response, state)
+            _add_security_headers(response)
+            return response
+
+        if not _authenticated(request, state):
+            response = HTMLResponse(
+                """
+                <h1>Dashboard locked</h1>
+                <p>Open the local URL printed by <code>finance serve</code>.</p>
+                """,
+                status_code=401,
+            )
+            _add_security_headers(response)
+            return response
+
+        if _unsafe_method(request.method):
+            if not _same_origin(request):
+                response = HTMLResponse("Cross-site request rejected", status_code=403)
+                _add_security_headers(response)
+                return response
+            token = await _csrf_token_from_request(request)
+            if token != state.csrf_token:
+                response = HTMLResponse("CSRF token missing or invalid", status_code=403)
+                _add_security_headers(response)
+                return response
+
+        response = await call_next(request)
+        _add_security_headers(response)
+        return response
+
+    @app.get("/static/{asset}")
+    async def static_asset(asset: str):
+        if asset not in {"app.css", "app.js"}:
+            raise HTTPException(404, "static asset not found")
+        path = files("finance.web").joinpath("static", asset)
+        media_type = "text/css" if asset.endswith(".css") else "application/javascript"
+        response = Response(path.read_text(), media_type=media_type)
+        _add_security_headers(response)
+        return response
 
     # Mount Phase 8 dashboard router (overview, merchants, recurring, subs,
     # forecast, alerts, advice + HTMX write fragments).

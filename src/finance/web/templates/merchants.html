@@ -138,14 +138,6 @@
         </div>
       </section>
     {% endif %}
-
-    <style>
-      /* Button label toggle: hide "idle" label during request, hide "running"
-         label when idle. .when-idle / .htmx-indicator span live in the button. */
-      .htmx-request > .when-idle { display: none; }
-      button > .htmx-indicator { display: none; }
-      .htmx-request > .htmx-indicator { display: inline-flex !important; }
-    </style>
   {% endif %}
 
   <section class="grid grid-cols-4 gap-4 mb-4">

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC
@@ -300,10 +301,12 @@ def serve(
         return EnableBankingClient(app_id=app_id, private_key_pem=private_pem)
 
     rules = load_rules(settings.rules_path)
+    dashboard_token = secrets.token_urlsafe(24)
     state = AppState(
         client_factory=client_factory,
         db_path=settings.db_path,
         callback_url=cfg.callback_url,
+        auth_token=dashboard_token,
         rules=rules,
     )
     web_app = create_app(state)
@@ -320,7 +323,10 @@ def serve(
         scheme = "https"
         typer.echo(f"  TLS: self-signed cert at {tls_paths.cert}")
         typer.echo("  Browser will warn 'Not Secure' — that's normal for localhost; accept once.")
-    typer.echo(f"→ Open {scheme}://{host}:{port}/  (callback: {cfg.callback_url})")
+    typer.echo(
+        f"→ Open {scheme}://{host}:{port}/?token={dashboard_token}  "
+        f"(callback: {cfg.callback_url})"
+    )
     uvicorn.run(web_app, **kwargs)
 
 

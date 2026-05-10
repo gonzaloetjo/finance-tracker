@@ -26,6 +26,7 @@
           </div>
         </div>
         <form method="post" action="/connect">
+          <input type="hidden" name="_csrf" value="{{ request.app.state.finance.csrf_token }}">
           <input type="hidden" name="aspsp_name" value="{{ a.name }}">
           <input type="hidden" name="aspsp_country" value="{{ a.country }}">
           <button class="bg-black text-white px-3 py-1.5 rounded text-sm">Connect</button>
