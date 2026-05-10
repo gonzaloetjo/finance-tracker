@@ -1265,10 +1265,74 @@ turning the app into a different product.
 
 ### Still intentionally deferred
 
-- Full auth/CSRF/CSP and CDN vendoring remain the next security boundary.
+- Tier U landed the local dashboard browser boundary; remaining security work
+  is now about privacy minimization, deployment hardening, and data-retention
+  policy rather than unauthenticated local browser writes.
 - Sync, reenrich, and LLM still run inline in requests/commands; locks prevent
   overlap, but there is not yet a background worker/job queue.
 - `cli.py` and `web/dashboard.py` are still large modules. This pass added
   operational guards around them, not a route/command split.
 - The analytics core is a contract layer plus proof adapter, not a full plugin
   runtime or non-finance dashboard.
+
+---
+
+## Tier U — local dashboard browser security boundary
+
+After Tier R/S/T left the web boundary as the largest remaining P1 security
+gap, this pass hardened the local dashboard without changing the product into
+a multi-user or cloud service.
+
+### Findings addressed
+
+1. **The dashboard accepted browser traffic without an app-issued secret.**
+   `finance serve` now generates a random dashboard token, prints a startup
+   URL containing it, strips the token from the browser URL on first GET, and
+   stores it in an HttpOnly SameSite cookie. Programmatic clients can still
+   use the same token as a bearer/query token in tests or local automation.
+2. **Mutating browser routes had no CSRF boundary.** Unsafe methods now
+   require same-origin traffic and the app's CSRF token. The token is exposed
+   through a meta tag for local dashboard JS and can also be supplied as
+   `_csrf` for regular form posts.
+3. **Sensitive pages depended on CDN JavaScript and inline handlers.**
+   Tailwind, HTMX, Chart.js, inline scripts, inline styles, and inline click
+   handlers were replaced by local `app.css` and `app.js`. The local script
+   implements the small HTMX subset and chart rendering the dashboard
+   actually uses.
+4. **Security headers were absent.** Responses now set `nosniff`,
+   `DENY` framing, `no-referrer`, and a self-only CSP with no inline scripts.
+5. **Callback/token URL leakage needed another reduction layer.** Tier Q
+   disabled uvicorn access logs by default; Tier U additionally removes the
+   dashboard token from the browser-visible URL after initial login.
+
+### Changes
+
+- `46412f7` — `fix(web): harden local dashboard boundary`.
+  Added token-cookie authentication, CSRF/origin enforcement, security
+  headers, local static asset serving, local dashboard CSS/JS, template
+  updates, and ASGI client support for cookies/CSRF. Added regressions for
+  locked dashboard access, token stripping, CSRF/same-origin rejection, CSP
+  headers, and local assets.
+
+### Verification
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run mypy src/finance` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run vulture src/finance --min-confidence 80` — clean.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_web_flow.py tests/test_web_dashboard.py -q` — 41 / 41 passing.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` — 221 / 221 passing.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219` — no known vulnerabilities found.
+- `bash -n scripts/finance-all.sh` — clean.
+
+### Still intentionally deferred
+
+- This is a local single-user guard, not multi-user auth, TLS deployment, or
+  a hardened reverse-proxy/cloud posture.
+- LLM prompt minimization, tool-provider opt-in, and redaction-version
+  tracking remain open.
+- Raw provider payload retention still needs purge/minimize/encryption policy.
+- Sync, reenrich, and LLM still run inline; locks prevent overlap, but there
+  is not yet a background worker/job queue.
+- `cli.py` and `web/dashboard.py` remain large coordination modules.
+- The analytics core still needs plugin/runtime registration and a
+  non-finance dashboard path.

@@ -6,11 +6,12 @@ Key source files by line count:
 
 | File | Lines |
 |---|---:|
-| `src/finance/cli.py` | 1568 |
+| `src/finance/cli.py` | 1574 |
 | `src/finance/web/dashboard.py` | 871 |
 | `src/finance/analysis/merchants.py` | 462 |
 | `src/finance/llm/categorize.py` | 313 |
 | `src/finance/analysis/streams.py` | 311 |
+| `src/finance/web/app.py` | 302 |
 | `src/finance/analysis/subscriptions.py` | 279 |
 | `src/finance/llm/client.py` | 256 |
 | `src/finance/analysis/totals.py` | 251 |
@@ -18,16 +19,16 @@ Key source files by line count:
 Test suite:
 
 - 26 `tests/test_*.py` files.
-- 218 tests passing after Tier R/S/T.
+- 221 tests passing after Tier U.
 - 70% total coverage.
 
 ## Verification Results
 
 ```text
-ruff check .                                      passed
+ruff check src tests                              passed
 mypy src/finance                                  passed
 vulture src/finance --min-confidence 80           passed
-pytest -q                                         218 passed
+pytest -q                                         221 passed
 pytest --cov=finance ...                          initial audit: 207 passed, 70% coverage
 pip-audit --skip-editable --ignore-vuln CVE-2026-3219
                                                   no known vulnerabilities
@@ -70,11 +71,14 @@ now reports no known vulnerabilities. The ignore is retained because
 | Concern | Evidence |
 |---|---|
 | Host can be exposed | [cli.py](../../src/finance/cli.py#L271) |
-| App mounted without auth | [web/app.py](../../src/finance/web/app.py#L57) |
-| POST `/sync` inline work | [web/app.py](../../src/finance/web/app.py#L122) |
+| Dashboard startup token | [cli.py](../../src/finance/cli.py#L304) |
+| Local auth/CSRF/security-header middleware | [web/app.py](../../src/finance/web/app.py#L155) |
+| POST `/sync` inline work | [web/app.py](../../src/finance/web/app.py#L268) |
 | LLM web categorization inline | [dashboard.py](../../src/finance/web/dashboard.py#L220) |
 | Rules reenrich inline | [dashboard.py](../../src/finance/web/dashboard.py#L700) |
-| CDN scripts | [base.html](../../src/finance/web/templates/base.html#L7) |
+| Local dashboard JS | [app.js](../../src/finance/web/static/app.js#L1) |
+| Local dashboard CSS | [app.css](../../src/finance/web/static/app.css#L1) |
+| CSRF token meta tag | [base.html](../../src/finance/web/templates/base.html#L6) |
 | Masked IBAN display | [_account_row.html](../../src/finance/web/templates/_account_row.html#L8) |
 | LLM memo prompt construction | [categorize.py](../../src/finance/llm/categorize.py#L131) |
 | Claude CLI WebSearch instruction | [providers.py](../../src/finance/llm/providers.py#L83) |
@@ -103,7 +107,8 @@ now reports no known vulnerabilities. The ignore is retained because
 Areas where independent agents agreed:
 
 - Current repo is clean for a local single-user finance tool.
-- Web exposure is the major security cliff.
+- Tier U closed the unauthenticated local browser-write cliff, but broader
+  web exposure still needs a deliberate deployment/auth model.
 - LLM privacy needs a formal boundary.
 - CLI and dashboard router are the two largest maintainability surfaces.
 - SQLite/Pandas are acceptable now, but jobs/locks/indexes are needed before
@@ -113,8 +118,10 @@ Areas where independent agents agreed:
 Areas requiring judgement:
 
 - Multi-tenant auth and cloud deployment are not needed for the stated product,
-  but basic local auth/CSRF becomes important even before multi-tenancy.
+  but the Tier U local auth/CSRF boundary should remain in place even for
+  localhost-only use.
 - Generalizing too early would damage the finance product. The right move is
   a small platform vocabulary plus one second-domain proof, not a broad rewrite.
 - Some security issues are acceptable only if the app remains strictly
-  loopback and trusted-user. The current code does not enforce that boundary.
+  loopback and trusted-user. Tier U improves the browser boundary, but does
+  not turn the app into a shared service.

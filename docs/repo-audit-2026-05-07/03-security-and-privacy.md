@@ -7,9 +7,10 @@ choices are good under that threat model: encrypted EB private key storage,
 config chmod, JWT TTL and `jti`, parameterized SQL, key redaction, and
 IBAN redaction in EB error bodies.
 
-The repo is not hardened for network exposure. If the dashboard is
-reachable by another browser/user/process, sensitive financial data and
-write actions are exposed.
+Tier U added a local browser boundary for the dashboard: startup token login,
+HttpOnly SameSite cookie, CSRF/origin checks, local JS/CSS assets, CSP, and
+security headers. That makes localhost use materially safer, but the repo is
+still not hardened as a multi-user or cloud-facing service.
 
 ## Positive Controls
 
@@ -24,70 +25,83 @@ write actions are exposed.
 - Most SQL paths use placeholders.
 - Anthropic-looking keys are redacted before LLM run logging in
   [llm/client.py](../../src/finance/llm/client.py#L86).
+- `finance serve` issues a per-process dashboard token in
+  [cli.py](../../src/finance/cli.py#L304), and the web middleware enforces
+  token/cookie auth, CSRF, origin checks, and security headers in
+  [web/app.py](../../src/finance/web/app.py#L155).
+- Browser assets are served locally from
+  [web/static/app.js](../../src/finance/web/static/app.js) and
+  [web/static/app.css](../../src/finance/web/static/app.css).
 
 ## Findings
 
-### S1. No Dashboard Authentication
+### S1. No Dashboard Authentication (Fixed For Local Serve In Tier U)
 
-Evidence:
+Initial evidence:
 
 - `create_app()` mounts routes directly in
-  [web/app.py](../../src/finance/web/app.py#L57).
+  [web/app.py](../../src/finance/web/app.py#L149).
 - Mutating routes exist across [web/app.py](../../src/finance/web/app.py)
   and [web/dashboard.py](../../src/finance/web/dashboard.py).
 - `finance serve` defaults to `127.0.0.1`, but `--host` is configurable in
   [cli.py](../../src/finance/cli.py#L271).
 
-Risk:
+Current status:
 
-Binding to `0.0.0.0`, reverse proxying, or accidental local exposure gives
-any reachable user read/write access to accounts, transactions, categories,
-rules, sync, LLM calls, and key storage.
+Tier U generates a random dashboard token in `finance serve`, prints a local
+URL containing it, strips the token from the browser URL on first GET, and
+sets an HttpOnly SameSite cookie. Requests without the cookie, bearer token,
+or query token receive `401`.
 
-Recommendation:
+Remaining risk:
 
-Add local authentication before any broader use:
+This is single-user local auth, not a hardened multi-user deployment model.
+Do not treat `--host 0.0.0.0` plus the printed token as sufficient for a
+shared network or cloud service.
 
-- random local bearer token printed at startup, or
-- password/session cookie, or
-- loopback-only guard that refuses non-loopback hosts unless auth is enabled.
+Remaining recommendation:
 
-### S2. No CSRF Protection On Mutating Routes
+Keep the token-cookie boundary for local use. Add a deliberate deployment
+profile, TLS/proxy guidance, and user/session model before broader exposure.
 
-Evidence:
+### S2. No CSRF Protection On Mutating Routes (Fixed In Tier U)
 
-- `/sync` mutates in [web/app.py](../../src/finance/web/app.py#L122).
+Initial evidence:
+
+- `/sync` mutates in [web/app.py](../../src/finance/web/app.py#L268).
 - Rules, settings, merchants, streams, accounts, and advice POST routes live
   in [web/dashboard.py](../../src/finance/web/dashboard.py).
 
-Risk:
+Current status:
 
-A malicious webpage can submit forms to `localhost` if the dashboard is
-running. This matters even if the app remains loopback-only.
+Tier U enforces same-origin checks and a server-generated CSRF token for
+unsafe methods. The local dashboard JS sends `X-CSRF-Token`, and traditional
+forms can submit `_csrf`.
 
-Recommendation:
+Remaining recommendation:
 
-Add CSRF tokens for forms and HTMX requests. At minimum, enforce `Origin`
-or `Sec-Fetch-Site` checks and require an app-issued token on unsafe methods.
+Keep all future mutating routes behind the same middleware and add
+regression tests when new forms or non-JS POST paths are introduced.
 
-### S3. CDN Scripts Run On Sensitive Pages
+### S3. CDN Scripts Run On Sensitive Pages (Fixed In Tier U)
 
-Evidence:
+Initial evidence:
 
 - Tailwind and HTMX are loaded from CDNs in
   [base.html](../../src/finance/web/templates/base.html#L7).
 - Chart.js is loaded from CDN in
   [index.html](../../src/finance/web/templates/index.html#L88).
 
-Risk:
+Current status:
 
-Compromised CDN JavaScript can read DOM-rendered bank data and API-key form
-contents.
+Tier U removed those CDN dependencies and inline browser handlers. The
+dashboard now uses local `app.css` and `app.js`, and responses include a
+self-only CSP that does not allow inline scripts.
 
-Recommendation:
+Remaining recommendation:
 
-Vendor these assets locally, pin versions, and add a Content Security
-Policy. Avoid inline scripts or move them behind nonces/hashes.
+Keep the CSP restrictive. If a future dependency is added, vendor/pin it
+locally or document why an external source is necessary.
 
 ### S4. LLM Privacy Boundary Is Not Explicit Enough
 
@@ -256,8 +270,8 @@ blocking with one explicit ignore for no-fixed-version `CVE-2026-3219`.
 
 ## Security Priorities
 
-1. Add auth and CSRF before any non-loopback use.
-2. Vendor scripts and add CSP/security headers.
-3. Define LLM prompt minimization and explicit opt-in for tool-enabled LLMs.
-4. chmod/minimize/encrypt the SQLite data store.
-5. Limit or timebox user regex rules used during re-enrichment.
+1. Define LLM prompt minimization and explicit opt-in for tool-enabled LLMs.
+2. Add purge/minimize/encryption policy for raw SQLite payloads.
+3. Add a deliberate deployment profile before any non-loopback use.
+4. Limit or timebox user regex rules used during re-enrichment.
+5. Keep future mutating routes covered by the Tier U CSRF/origin middleware.

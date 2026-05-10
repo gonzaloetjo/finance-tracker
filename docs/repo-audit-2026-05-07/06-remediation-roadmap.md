@@ -15,8 +15,8 @@
 | Done S | Add migration version table/runner. | Tier S added `schema_migrations`, migration registry, and old-schema tests. | `db/store.py`, tests |
 | Done S | Fix stream integrity after merchant merges. | Tier S recomputes affected streams and tests dangling refs. | `analysis/merchants.py`, `analysis/streams.py`, tests |
 | Done T | Formalize analytics contracts. | Tier T added `CanonicalEvent`, `DatasetAdapter`, `MetricSpec`, finance metric specs, and a usage CSV proof. | `core/*`, `analysis/metric_specs.py`, tests |
-| P1 | Add local auth and CSRF/origin checks. | Required before any non-loopback exposure and useful even on localhost. | `web/app.py`, templates |
-| P1 | Vendor JS assets and add CSP. | CDN script compromise can read bank data. | `web/templates/base.html`, static assets |
+| Done U | Add local auth and CSRF/origin checks. | Tier U added startup token login, HttpOnly SameSite cookie auth, same-origin checks, and CSRF token enforcement. | `web/app.py`, `cli.py`, templates, tests |
+| Done U | Replace CDN/inline browser assets and add CSP. | Tier U moved dashboard behavior/style to local `app.js`/`app.css` and added self-only CSP/security headers. | `web/app.py`, `web/static/*`, templates |
 | P1 | Define LLM privacy/minimization boundary. | Raw memos and merchant context leave the machine. | `llm/categorize.py`, `llm/providers.py`, web settings |
 | P1 | Move locked long jobs to background execution. | Locks prevent overlap, but requests still block until work finishes. | `web/*`, new job worker |
 | P2 | Split `cli.py` by command group through service functions. | User entry points are large and under-tested. | `cli.py`, new `cli/*` or `services/*` |
@@ -35,16 +35,19 @@
    `cache_read_tokens` query.
 7. Done in Tier R/S/T: partial sync rollback, DB locks, WAL/indexes,
    migrations, stream-integrity tests, EB retries, and analytics contracts.
+8. Done in Tier U: local dashboard auth, CSRF/origin checks, local assets,
+   CSP, and browser security headers.
 
 ## 60-Day Plan
 
-1. Add auth and CSRF/origin checks.
-2. Vendor Tailwind/HTMX/Chart.js or replace the CDN strategy.
-3. Add CSP/security headers.
-4. Move sync/reenrich/LLM jobs to background execution and persistent job
+1. Define LLM minimization/redaction policy and explicit opt-in for
+   tool-enabled providers.
+2. Add raw payload purge/minimize/encryption policy.
+3. Move sync/reenrich/LLM jobs to background execution and persistent job
    progress.
-5. Add retry/page counts to `sync_runs`.
-6. Add old-schema migration tests for the next non-additive migration.
+4. Add retry/page counts to `sync_runs`.
+5. Add old-schema migration tests for the next non-additive migration.
+6. Document a deployment profile before any non-loopback use.
 
 ## 90-Day Plan
 
@@ -58,13 +61,19 @@
 
 ## Suggested Issue Batches
 
-### Batch A: Security Baseline (Done In Tier Q)
+### Batch A: Security Baseline (Tier Q Done, Tier U Browser Boundary Done)
 
 - Upgraded vulnerable locked dependencies.
 - Made `pip-audit` blocking in CI with one explicit no-fixed-version ignore.
 - Masked IBANs.
 - Escaped direct dynamic HTML fragments found in this pass.
 - Disabled callback access logs by default.
+- Added local dashboard token-cookie auth.
+- Added CSRF/origin checks.
+- Replaced CDN/inline browser assets with local JS/CSS.
+- Added CSP and security headers.
+- Open: LLM minimization, raw payload retention, regex timeboxing, and
+  deliberate deployment hardening.
 
 ### Batch B: Job Safety (Tier R Done, Worker Still Open)
 

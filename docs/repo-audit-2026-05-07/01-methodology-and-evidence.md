@@ -72,6 +72,20 @@ After the operations, migration, and analytics-contract pass:
 | pip-audit | Passed with explicit ignore for no-fixed-version `CVE-2026-3219`. |
 | Shell syntax | `bash -n scripts/finance-all.sh` passed. |
 
+## Tier U Verification
+
+After the local dashboard browser-boundary pass:
+
+| Check | Result |
+|---|---|
+| Ruff | Passed for `src tests`. |
+| Mypy | Passed: no issues in 47 source files. |
+| Vulture | Passed: no output at `--min-confidence 80`. |
+| Focused pytest | Passed: 41 tests across web flow and dashboard coverage. |
+| Full pytest | Passed: 221 tests. |
+| pip-audit | Passed with explicit ignore for no-fixed-version `CVE-2026-3219`. |
+| Shell syntax | `bash -n scripts/finance-all.sh` passed. |
+
 The first `uv` attempts failed because the default uv cache under
 `/home/genge/.cache/uv` was read-only in this sandbox. Re-running with
 `UV_CACHE_DIR=/tmp/uv-cache` resolved that.
@@ -83,7 +97,7 @@ Coverage is strong in domain modules and weak around user entry points:
 | Area | Coverage Signal |
 |---|---|
 | Total | 70%. |
-| `src/finance/cli.py` | 20%, 1551 lines, 806 statements. |
+| `src/finance/cli.py` | 20%, 1574 lines, 806 statements. |
 | `src/finance/web/dashboard.py` | 83%, but many LLM/progress/write branches remain uncovered. |
 | `src/finance/analysis/reports.py` | 0%. |
 | `src/finance/web/tls.py` | 0%. |
@@ -101,8 +115,8 @@ Coverage is strong in domain modules and weak around user entry points:
 
 ## Constraints
 
-- The initial audit did not modify application code. Tier Q and Tier R/S/T
-  later applied remediation passes and are recorded in `AUDIT.md`.
+- The initial audit did not modify application code. Tier Q, Tier R/S/T, and
+  Tier U later applied remediation passes and are recorded in `AUDIT.md`.
 - It did not attempt live Enable Banking calls.
 - It did not inspect private history beyond local files in this public mirror.
 - `pip-audit` required network access and was run after approval.

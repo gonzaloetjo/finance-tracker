@@ -22,11 +22,12 @@ The repo is clean and coherent for a single-user, local personal finance
 tool. It has strong domain tests, clear SQLite/Pandas analysis paths,
 age-encrypted Enable Banking key handling, and useful LLM isolation.
 
-It is not currently safe to expose beyond localhost, and it is still not a
-full reusable analytics platform. Tier R/S/T improved operational
-robustness and added analytics contracts, but the largest remaining gaps are
-explicit web hardening, data/LLM privacy boundaries, background job
-execution, route/CLI decomposition, and plugin/runtime integration.
+Tier U makes the local browser dashboard much safer against accidental
+exposure and cross-site localhost writes, but this is still not a multi-user
+or cloud-hardened service. It is also still not a full reusable analytics
+platform. The largest remaining gaps are data/LLM privacy boundaries,
+background job execution, route/CLI decomposition, and plugin/runtime
+integration.
 
 ## Roadmap Status
 
@@ -39,11 +40,13 @@ execution, route/CLI decomposition, and plugin/runtime integration.
   after merchant merges, and an enrichment cache.
 - **Tier T landed:** `finance.core` analytics contracts, finance metric
   specs, and a usage-event CSV adapter proof.
+- **Tier U landed:** local dashboard token-cookie auth, CSRF/origin checks,
+  local JS/CSS assets, self-only CSP, and browser security headers.
 
 ## Current Verification Snapshot
 
-- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .` passed.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run ruff check src tests` passed.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run mypy src/finance` passed.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run vulture src/finance --min-confidence 80` passed.
-- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` passed: 218 tests.
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pytest -q` passed: 221 tests.
 - `UV_CACHE_DIR=/tmp/uv-cache uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219` passed.
