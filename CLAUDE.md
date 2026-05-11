@@ -17,7 +17,7 @@ with `uv`.
 Every command is prefixed with `uv run` (virtualenv-managed via `uv sync`):
 
 ```
-uv run pytest -q                                      # full suite, ~75 s, 198+ tests
+uv run pytest -q                                      # full suite, ~75 s, 221+ tests
 uv run pytest --cov=finance --cov-report=term         # + coverage
 uv run pytest tests/test_cli_smoke.py -v              # CLI end-to-end smoke
 uv run ruff check .                                   # lint
@@ -36,6 +36,13 @@ uv run finance serve                     # dashboard at http://localhost:8000
 ```
 
 Full CLI surface is documented in `README.md`.
+
+Alternative entry point: `devenv shell` (devenv 2.1+) pins Python 3.11 and
+system tools (`git`, `jq`, `sqlite`, `shellcheck`, `openssl`, `uv`) and
+exposes the full check suite as `devenv test`. `uv.lock` stays the Python
+source of truth; devenv only wraps it. See `docs/development-environment.md`
+and AUDIT Tier V. Don't propose Docker as the default dev runtime — the
+app reads local dirs, OS keyring, and the browser OAuth flow.
 
 ## Architectural decisions you'll want to know before editing
 
@@ -96,6 +103,24 @@ can judge edge cases.
   trend / merchant analyses to drop them. Stream-based analyses span
   every account by merchant — that's typically fine because savings
   accounts produce few merchant-keyed transactions.
+
+- **DB connections are tuned + long jobs are locked (Tier R/S/T).**
+  `store.connect()` in `src/finance/db/store.py` applies `foreign_keys=ON`,
+  `journal_mode=WAL`, `busy_timeout=5000`, `synchronous=NORMAL`. Tests that
+  open SQLite via raw `sqlite3.connect` bypass those — fine for unit logic,
+  not for concurrency. Long-running ops (sync, reenrich, llm-categorize)
+  acquire a row in the `job_locks` table with owner + expiry; reuse that
+  pattern instead of inventing a new overlap guard. Additive schema changes
+  go through the `schema_migrations` registry in the same module — don't
+  add free-standing `ALTER TABLE` calls.
+
+- **Web dashboard is locked down (Tier U).** `finance serve` issues a
+  random dashboard token (HttpOnly SameSite cookie), enforces CSRF +
+  same-origin on unsafe methods, sets a strict CSP, and serves only local
+  `web/static/app.css` + `app.js`. Don't reintroduce inline `<script>`,
+  inline `onclick=`, inline `style=`, or CDN URLs — the CSP will block
+  them in the browser even though tests may pass. ASGI tests need to
+  round-trip the token cookie + CSRF header (see `tests/test_web_flow.py`).
 
 - **Typer `B008` suppression**. `typer.Argument(...)` / `typer.Option(...)`
   as function defaults is the canonical typer idiom. `pyproject.toml`
