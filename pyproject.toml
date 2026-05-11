@@ -26,6 +26,7 @@ dependencies = [
     "rapidfuzz>=3.9",
     "anthropic>=0.40",
     "instructor>=1.10",
+    "sqlcipher3-binary>=0.6.0",
 ]
 
 [project.scripts]

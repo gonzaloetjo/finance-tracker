@@ -7,7 +7,7 @@
       <label class="flex items-center gap-1">
         <input type="checkbox" name="show_dismissed" value="true"
                {% if show_dismissed %}checked{% endif %}
-               onchange="this.form.submit()">
+               data-auto-submit>
         show dismissed
       </label>
     </form>
@@ -40,6 +40,7 @@ uv run finance advise integral-offers</pre>
                 hx-post="/advice/{{ item.id }}/dismiss"
                 hx-target="#advice-{{ item.id }}"
                 hx-swap="delete"
+                aria-label="Dismiss advice"
                 class="text-xs text-neutral-400 hover:text-red-600 px-2">✕</button>
             {% endif %}
           </header>

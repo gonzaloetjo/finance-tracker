@@ -171,7 +171,9 @@ def test_paypal_paiemen_placeholder_emits_no_merchant():
 
     # Normal PayPal (with an actual merchant) still extracts the merchant
     memo_google = "FACTURE CARTE DU 130426 PAYPAL *GOOGLE LUXEMBOURG CARTE 0000XXXXXXXX0000"
-    assert parse_memo(memo_google, profile=FR_BNP_PROFILE).merchant_raw == "PAYPAL *GOOGLE LUXEMBOURG"
+    assert (
+        parse_memo(memo_google, profile=FR_BNP_PROFILE).merchant_raw == "PAYPAL *GOOGLE LUXEMBOURG"
+    )
 
 
 def test_transfer_matches_before_vir():

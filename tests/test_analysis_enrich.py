@@ -174,9 +174,7 @@ def test_classify_from_streams_tags_transfer(tmp_path):
             "INSERT INTO accounts (account_uid, session_id, iban, name, currency, account_type, raw_json)"
             " VALUES ('a1', 's1', 'FR00', 'Checking', 'EUR', 'CACC', '{}')"
         )
-        memo = (
-            "VIR CPTE A CPTE EMIS /MOTIF VIREMENT VERS COMPTE DE CHEQUES /BEN DUPONT LE GRAND /REFDO"
-        )
+        memo = "VIR CPTE A CPTE EMIS /MOTIF VIREMENT VERS COMPTE DE CHEQUES /BEN DUPONT LE GRAND /REFDO"
         conn.execute(
             "INSERT INTO transactions (transaction_id, account_uid, booking_date, amount, currency,"
             " remittance_info, raw_json, fetched_at)"

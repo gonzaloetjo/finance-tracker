@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from finance.taxonomy import validate_category
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -24,7 +26,7 @@ def load_rules(path: Path) -> list[Rule]:
         cat = entry.get("category")
         if not pat or not cat:
             continue
-        rules.append(Rule(match=re.compile(pat), category=cat))
+        rules.append(Rule(match=re.compile(pat), category=validate_category(cat, source=str(path))))
     return rules
 
 
@@ -32,6 +34,8 @@ def save_rules(path: Path, rules: list[Rule]) -> None:
     """Persist rules back to YAML. Preserves the source pattern (.pattern) of
     each compiled regex so the file stays human-editable."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    for rule in rules:
+        validate_category(rule.category, source=str(path))
     data = [{"match": r.match.pattern, "category": r.category} for r in rules]
     # Dump with explicit flow style: keys first-match-wins ordering preserved.
     yaml_str = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)

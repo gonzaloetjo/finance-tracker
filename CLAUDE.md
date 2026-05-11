@@ -17,7 +17,7 @@ with `uv`.
 Every command is prefixed with `uv run` (virtualenv-managed via `uv sync`):
 
 ```
-uv run pytest -q                                      # full suite, ~75 s, 221+ tests
+uv run pytest -q                                      # full suite, 233+ tests
 uv run pytest --cov=finance --cov-report=term         # + coverage
 uv run pytest tests/test_cli_smoke.py -v              # CLI end-to-end smoke
 uv run ruff check .                                   # lint
@@ -61,20 +61,16 @@ can judge edge cases.
   precedence is in `analysis/classify.py:classify_merchant`; the read-side
   COALESCE is in `analysis/io.py:load_transactions`.
 
-- **`finance recategorize` is deprecated** — it writes to
-  `transactions.category` (legacy column), which `load_transactions` ignores
-  whenever a merchant-level category exists. Users running it will see a
-  silent no-op on the dashboard. Redirect them to
-  `finance analyze enrich --reenrich`. The backing `sync.recategorize_all`
-  stays as a low-level utility used by `test_sync.py`. See AUDIT Tier D.
+- **`finance recategorize` is gone/deprecated.** Redirect users to
+  `finance analyze enrich --reenrich`, which preserves user overrides and
+  rebuilds merchant/category/stream state through the current enrichment path.
 
 - **Prompt caching is turned off.** Anthropic's per-block minimum
   (~1024 on Haiku, ~2048 on Sonnet) is larger than this repo's system
   prompts, so `cache_control: ephemeral` was silently ignored — 94 LLM runs
-  in the real DB showed zero cache hits. The `cache_read_tokens` /
-  `cache_creation_tokens` columns stay in `llm_runs` for forward
-  compatibility. If you grow a system prompt past the threshold, the
-  marker is easy to add back in `llm/client.py`. See AUDIT Tier D.
+  in the real DB showed zero cache hits. The cache telemetry columns were
+  removed; if you grow a system prompt past the threshold, the marker is easy
+  to add back in `llm/client.py`. See AUDIT Tier D.
 
 - **`LLMClient` is wrapped with `instructor`** (`Mode.TOOLS`). Don't revert
   to native `anthropic.messages.parse()` — we chose instructor for
@@ -100,9 +96,9 @@ can judge edge cases.
 - **`accounts exclude` flag for non-spend accounts.** Joint savings,
   brokerage, or anything that shouldn't pollute spending totals can be
   flagged via `finance accounts exclude <uid>`; pass `--spend-only` to
-  trend / merchant analyses to drop them. Stream-based analyses span
-  every account by merchant — that's typically fine because savings
-  accounts produce few merchant-keyed transactions.
+  trend / merchant analyses to drop them. Stream rollups now also require an
+  included EUR transaction for the stream so overview/subscriptions/forecast
+  stay aligned with the spend-only policy.
 
 - **DB connections are tuned + long jobs are locked (Tier R/S/T).**
   `store.connect()` in `src/finance/db/store.py` applies `foreign_keys=ON`,

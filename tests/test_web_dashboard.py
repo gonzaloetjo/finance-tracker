@@ -4,7 +4,9 @@ write routes (HTMX) round-trip to SQLite.
 
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +15,8 @@ from finance.db import store
 from finance.llm.advise import persist_advice
 from finance.web.app import AppState, create_app
 from tests.web_client import ASGITestClient
+
+WEB_ROOT = Path(__file__).resolve().parents[1] / "src" / "finance" / "web"
 
 
 @pytest.fixture
@@ -562,3 +566,41 @@ def test_llm_categorize_endpoint_without_key(monkeypatch, seeded_dashboard):
     resp = client.post("/merchants/llm-categorize")
     assert resp.status_code == 200
     assert "No Anthropic API key" in resp.text
+
+
+def test_templates_and_fragments_do_not_use_inline_browser_code():
+    template_text = "\n".join(p.read_text() for p in (WEB_ROOT / "templates").glob("*.html"))
+    dashboard_text = (WEB_ROOT / "dashboard.py").read_text()
+    combined = template_text + "\n" + dashboard_text
+
+    assert not re.search(r"\son[a-z]+\s*=", combined)
+    assert "hx-on" not in combined
+    assert not re.search(r"<script(?![^>]*\bsrc=)", template_text)
+    assert "<script" not in dashboard_text
+    assert "javascript:" not in combined
+    assert not re.search(r"<th\b(?![^>]*\bscope=)", template_text)
+
+
+def test_local_css_covers_template_utility_classes():
+    classes: set[str] = set()
+    for path in (WEB_ROOT / "templates").glob("*.html"):
+        text = path.read_text()
+        for match in re.finditer(r'class="([^"]+)"', text, re.S):
+            raw = re.sub(r"{%.*?%}|{{.*?}}|{#.*?#}", " ", match.group(1), flags=re.S)
+            classes.update(c for c in raw.split() if c and not c.startswith(("{", "%", "}")))
+
+    css = (WEB_ROOT / "static" / "app.css").read_text()
+    built_ins = {"muted", "num", "spinner", "htmx-indicator", "htmx-request", "when-idle"}
+    missing: list[str] = []
+    for class_name in sorted(classes - built_ins):
+        escaped = (
+            class_name.replace(":", r"\:")
+            .replace(".", r"\.")
+            .replace("[", r"\[")
+            .replace("]", r"\]")
+            .replace("/", r"\/")
+        )
+        if not re.search(r"\." + re.escape(escaped) + r"(?=[\s:{,>])", css):
+            missing.append(class_name)
+
+    assert missing == []

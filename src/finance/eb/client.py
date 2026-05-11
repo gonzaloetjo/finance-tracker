@@ -19,6 +19,25 @@ def _safe_error_body(text: str, *, limit: int = 400) -> str:
     return redacted[:limit] + "...[truncated]"
 
 
+def explain_eb_error(error: httpx.HTTPStatusError) -> str:
+    status = error.response.status_code
+    body = _safe_error_body(error.response.text)
+    lowered = body.lower()
+    if status == 403 and ("not active" in lowered or "inactive" in lowered):
+        return (
+            "Enable Banking says your application is not active yet. "
+            "Open the Enable Banking Control Panel, select the application, "
+            "and complete activation/self-whitelisting for the app_id and IBAN."
+        )
+    if status in {401, 403}:
+        return (
+            "Enable Banking rejected the request. Check that config.toml app_id "
+            "matches the imported private key and that the application is active. "
+            f"HTTP {status}: {body}"
+        )
+    return f"Enable Banking returned HTTP {status}: {body}"
+
+
 class EnableBankingClient:
     """Thin httpx wrapper that injects a fresh JWT on each request.
 
@@ -50,19 +69,23 @@ class EnableBankingClient:
             headers={"Accept": "application/json"},
         )
 
-    def _token_headers(self) -> dict[str, str]:
+    def _token_headers(self, *, force_refresh: bool = False) -> dict[str, str]:
         now = time.time()
         # Refresh 60s before actual expiry to avoid race with server clock skew
-        if self._token is None or now >= self._token_exp - 60:
+        if force_refresh or self._token is None or now >= self._token_exp - 60:
             self._token = sign(self.app_id, self._key, ttl_seconds=self._ttl)
             self._token_exp = now + self._ttl
         return {"Authorization": f"Bearer {self._token}"}
 
     def request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
-        headers = kwargs.pop("headers", {}) or {}
-        headers.update(self._token_headers())
+        base_headers = kwargs.pop("headers", {}) or {}
         attempt = 0
+        force_token_refresh = False
+        retried_after_401 = False
         while True:
+            headers = dict(base_headers)
+            headers.update(self._token_headers(force_refresh=force_token_refresh))
+            force_token_refresh = False
             try:
                 resp = self._http.request(method, path, headers=headers, **kwargs)
             except (httpx.TimeoutException, httpx.NetworkError):
@@ -80,6 +103,12 @@ class EnableBankingClient:
                 delay = _retry_delay(resp, self._retry_backoff * (2**attempt))
                 resp.close()
                 time.sleep(delay)
+                attempt += 1
+                continue
+            if resp.status_code == 401 and not retried_after_401:
+                resp.close()
+                retried_after_401 = True
+                force_token_refresh = True
                 attempt += 1
                 continue
             break

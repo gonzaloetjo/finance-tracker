@@ -8,7 +8,7 @@
       <label class="flex items-center gap-1">
         <input type="checkbox" name="active_only" value="true"
                {% if active_only %}checked{% endif %}
-               onchange="this.form.submit()">
+               data-auto-submit>
         active only
       </label>
     </form>

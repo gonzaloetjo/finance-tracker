@@ -64,19 +64,27 @@ def test_init_schema_migrates_old_tables_and_tracks_versions(tmp_path):
 
         assert "excluded_from_spend" in _columns(conn, "accounts")
         assert "subscription_override" in _columns(conn, "streams")
+        assert "txn_type_class" in _columns(conn, "streams")
+        assert "amount_sign" in _columns(conn, "streams")
+        assert "currency" in _columns(conn, "streams")
+        assert "tx_uid" in _columns(conn, "transactions")
+        assert "provider_transaction_id" in _columns(conn, "transactions")
+        assert "source_key" in _columns(conn, "transactions")
         assert "transactions_fetched" in _columns(conn, "sync_runs")
         assert "date_from" in _columns(conn, "sync_runs")
         assert "job_locks" in {
             r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-        versions = {
-            r["version"] for r in conn.execute("SELECT version FROM schema_migrations")
-        }
+        versions = {r["version"] for r in conn.execute("SELECT version FROM schema_migrations")}
         assert {
             "0001_accounts_excluded_from_spend",
             "0002_streams_subscription_override",
             "0003_sync_runs_transactions_fetched",
             "0004_sync_runs_date_from",
+            "0005_transaction_identity_tx_uid",
+            "0006_streams_txn_type_class",
+            "0007_streams_amount_sign",
+            "0008_streams_currency",
         } <= versions
     finally:
         conn.close()
@@ -105,5 +113,30 @@ def test_job_lock_acquire_release_and_expiry(tmp_path):
         fresh = store.try_acquire_job_lock(conn, "sync:all", owner="fresh")
         assert fresh is not None
         assert fresh.owner == "fresh"
+    finally:
+        conn.close()
+
+
+def test_release_job_lock_does_not_commit_caller_transaction(tmp_path):
+    conn = store.connect(tmp_path / "finance.db")
+    try:
+        store.init_schema(conn)
+        lock = store.try_acquire_job_lock(conn, "enrich:all", owner="worker")
+        assert lock is not None
+
+        conn.execute("BEGIN")
+        conn.execute(
+            """
+            INSERT INTO sessions (session_id, aspsp_name, aspsp_country, valid_until, created_at)
+            VALUES ('uncommitted', 'Bank', 'FR', '2099-01-01', '2026-01-01')
+            """
+        )
+        store.release_job_lock(conn, lock)
+        conn.rollback()
+
+        session = conn.execute(
+            "SELECT session_id FROM sessions WHERE session_id = 'uncommitted'"
+        ).fetchone()
+        assert session is None
     finally:
         conn.close()

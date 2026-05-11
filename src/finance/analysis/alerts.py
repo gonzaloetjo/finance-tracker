@@ -59,7 +59,7 @@ def new_large_merchants(
 
     query = """
         SELECT
-          t.transaction_id        AS tx_id,
+          t.tx_uid                AS tx_id,
           t.booking_date          AS booking_date,
           t.amount                AS amount,
           t.currency              AS currency,
@@ -68,7 +68,7 @@ def new_large_merchants(
           m.first_seen            AS m_first_seen,
           e.txn_type              AS txn_type
         FROM transactions t
-        JOIN tx_enrichment e ON e.tx_id = t.transaction_id
+        JOIN tx_enrichment e ON e.tx_id = t.tx_uid
         LEFT JOIN merchants m ON m.merchant_id = e.merchant_id
         WHERE t.booking_date >= ?
           AND t.currency = 'EUR'

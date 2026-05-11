@@ -48,6 +48,9 @@ class Settings(BaseSettings):
 class AppConfig(BaseModel):
     app_id: str | None = None
     callback_url: str = "http://localhost:8000/callback"
+    timezone: str = "Europe/Paris"
+    sync_overlap_days: int | None = None
+    minimal_retention: bool = False
 
 
 def load_config(settings: Settings) -> AppConfig:

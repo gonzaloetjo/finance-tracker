@@ -1487,3 +1487,134 @@ Most listed tools are not repo-level wins right now:
 - `devenv test` — full task graph passed; `checks:nix` ran
   `statix check devenv.nix` alongside ruff, mypy, vulture, pytest,
   pip-audit, and shellcheck.
+
+---
+
+## Tier Y — hotfix: partial commits and sync resilience
+
+### Changes
+
+- Made `release_job_lock` transaction-aware so releasing a lock no longer
+  commits unrelated caller work.
+- Wrapped sync auto-enrich and web re-enrich paths in explicit transaction
+  contexts and added rollback-before-release behavior on failure.
+- Added stale `sync_runs.status='running'` recovery and one-shot Enable Banking
+  401 retry with a refreshed JWT.
+
+### Verification
+
+- Added regression tests for lock release, enrichment rollback, stale sync
+  recovery, and 401 token refresh.
+
+---
+
+## Tier Z — transaction identity, overlap sync, and stream repartitioning
+
+### Changes
+
+- Added local `transactions.tx_uid`, provider/source identity fields, and
+  compatibility triggers for existing `transaction_id` fixtures.
+- Sync now reconciles by `(account_uid, source_key)`, updates mutable provider
+  rows, supports `--overlap-days`, and estimates a data-informed overlap when
+  not configured.
+- Stream identity now includes merchant, amount bucket, sign, currency, and
+  transaction type class. Added `finance analyze recompute-streams
+  --report-orphan-overrides`.
+
+### Verification
+
+- Added tests for duplicate provider IDs across accounts, corrected-provider
+  updates, overlap lookback, opposite-sign stream splits, and override split
+  reporting.
+
+---
+
+## Tier AA — dashboard browser correctness
+
+### Changes
+
+- Removed inline handlers and returned inline scripts; delegated auto-submit,
+  reset-on-success, reload, and polling behavior to `app.js`.
+- Deleted stale `index.html`, expanded local CSS utility coverage, added focus
+  styling, `aria-live` regions, and table header `scope="col"`.
+- Added static tests that reject inline browser code and unsupported template
+  utility classes.
+
+### Verification
+
+- Dashboard and flow tests pass with the stricter static checks.
+
+---
+
+## Tier AB — sync and onboarding trust
+
+### Changes
+
+- Overview now distinguishes connected-but-unsynced state with a primary sync
+  CTA and shows last sync status/timestamps after syncs exist.
+- Sync fragments distinguish success, partial failure, and total failure.
+- Enable Banking 401/403 hints are shared between CLI and web.
+- Added confirmations for account include/exclude, category clear, and broad
+  web re-enrich. Added AI categorization disclosure covering provider, data
+  shape, WebSearch behavior, and expected cost.
+
+---
+
+## Tier AC — privacy, consent, and encrypted local state
+
+### Changes
+
+- Added `finance backup create --output <path> [--redacted]`,
+  `finance privacy purge-raw`, `finance db encrypt`, and
+  `finance db decrypt-export --output <path>`.
+- `db encrypt` writes a new encrypted file only, requires a prior backup marker,
+  prompts for the passphrase with hidden input, and preserves plaintext.
+- Added `finance sessions revoke <id>` and `finance sessions rm <id> --revoke`
+  with `revoked_at` recording.
+- LLM categorization now redacts memo prompt text and exposes
+  `--preview-prompt` to show exactly what would be sent without calling an LLM.
+
+### Deferred note
+
+- SQLCipher encryption requires `pysqlcipher3` / SQLCipher in the runtime
+  environment; the command fails closed if unavailable and leaves plaintext
+  untouched.
+
+---
+
+## Tier AD — analytics policy cleanup
+
+### Changes
+
+- Stream rollups used by totals, recurring, subscriptions, and forecast now
+  require EUR streams and at least one included-account EUR transaction.
+- Added minor-unit columns (`transactions.amount_minor`,
+  `streams.median_amount_minor`) with migration/backfill and sync/stream writes.
+- Added central config fields for timezone, sync overlap, and minimal raw-data
+  retention; CLI sync honors configured overlap/minimal retention.
+- Category writes and YAML rules now validate against the canonical taxonomy.
+
+---
+
+## Tier AE — CLI, CI, devenv, docs polish
+
+### Changes
+
+- Removed fake `--csv` support from nested `advise` commands; advisory output
+  remains nested JSON with `--json`.
+- `merchant seed-top` now requires `--seed-file`.
+- CI now runs `uv sync --frozen --all-groups`, pins Python `3.11.15`, and adds
+  `uv run ruff format --check .`.
+- README/CLAUDE were refreshed for DB paths, privacy commands, prompt preview,
+  merchant seed flags, and current verification workflow.
+
+### Verification
+
+- `uv run pytest -q` — 233 passed.
+- `uv run ruff check src tests` — clean.
+- `uv run ruff format --check .` — clean.
+- `uv run mypy src/finance` — clean.
+- `uv run vulture src/finance --min-confidence 80` — clean.
+- `uv run pip-audit --skip-editable` — no known vulnerabilities.
+- `bash -n scripts/finance-all.sh` — clean.
+- `shellcheck` and `statix` were not available in the current shell.

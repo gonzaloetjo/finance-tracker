@@ -8,6 +8,7 @@ override lets a `CliRunner` run any CLI command against a disposable database.
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime
 
 from typer.testing import CliRunner
@@ -88,6 +89,52 @@ def test_label_writes_tx_override(cli_db) -> None:
     assert row["category"] == "Dining"
 
 
+def test_backup_create_redacted_removes_raw_personal_fields(cli_db, tmp_path) -> None:
+    conn, _db_path = cli_db
+    iban = "FR7630006000011234567890189"
+    memo = "VIR SEPA INST RECU /DE Jean Dupont /REF ABC123456789"
+    _seed_session_and_account(conn, iban=iban, account_name="Jean Dupont")
+    with conn:
+        conn.execute(
+            "INSERT INTO transactions (transaction_id, account_uid, booking_date, amount,"
+            " currency, creditor_name, debtor_name, remittance_info, raw_json, fetched_at)"
+            " VALUES ('tx-redact', 'acct-1', '2026-04-01', 10.0, 'EUR', 'Jean Dupont',"
+            " 'Employer', ?, ?, '2026-04-01T00:00:00Z')",
+            (memo, f'{{"iban":"{iban}","memo":"{memo}"}}'),
+        )
+
+    out = tmp_path / "backup-redacted.db"
+    result = CliRunner().invoke(app, ["backup", "create", "--output", str(out), "--redacted"])
+
+    assert result.exit_code == 0, result.output
+    with sqlite3.connect(out) as redacted:
+        account = redacted.execute("SELECT iban, name, raw_json FROM accounts").fetchone()
+        tx = redacted.execute(
+            "SELECT creditor_name, debtor_name, remittance_info, raw_json, provider_transaction_id"
+            " FROM transactions"
+        ).fetchone()
+    assert account == (None, "[REDACTED]", "{}")
+    assert tx == (None, None, "[REDACTED]", "{}", None)
+
+
+def test_privacy_purge_raw_clears_raw_json(cli_db) -> None:
+    conn, _db_path = cli_db
+    _seed_session_and_account(conn)
+    with conn:
+        conn.execute(
+            "INSERT INTO transactions (transaction_id, account_uid, booking_date, amount,"
+            " currency, raw_json, fetched_at)"
+            " VALUES ('tx-raw', 'acct-1', '2026-04-01', -1.0, 'EUR', '{\"secret\":true}',"
+            " '2026-04-01T00:00:00Z')"
+        )
+
+    result = CliRunner().invoke(app, ["privacy", "purge-raw"])
+
+    assert result.exit_code == 0, result.output
+    assert conn.execute("SELECT raw_json FROM accounts").fetchone()[0] == "{}"
+    assert conn.execute("SELECT raw_json FROM transactions").fetchone()[0] == "{}"
+
+
 def test_sync_exits_nonzero_when_any_account_errors(cli_db, monkeypatch) -> None:
     """`finance sync` previously echoed errors to stderr but exited 0,
     which let cron / systemd think the run succeeded. Tier N: exit 1 if
@@ -104,8 +151,11 @@ def test_sync_exits_nonzero_when_any_account_errors(cli_db, monkeypatch) -> None
     def fake_sync_all_accounts(*_args, **_kwargs):
         return [
             SyncResult(
-                account_uid="acct-1", added=0, fetched=0,
-                status="error", error="EB 401 unauthorized",
+                account_uid="acct-1",
+                added=0,
+                fetched=0,
+                status="error",
+                error="EB 401 unauthorized",
             )
         ]
 

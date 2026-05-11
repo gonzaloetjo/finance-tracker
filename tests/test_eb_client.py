@@ -139,3 +139,20 @@ def test_client_caches_jwt_across_requests():
     assert len(seen_tokens) == 2
     # Same token reused (cached)
     assert seen_tokens[0] == seen_tokens[1]
+
+
+def test_client_retries_401_once_with_refreshed_token(monkeypatch):
+    tokens = iter(["first-token", "second-token"])
+    monkeypatch.setattr("finance.eb.client.sign", lambda *_args, **_kwargs: next(tokens))
+    seen_auth: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_auth.append(request.headers["authorization"])
+        if len(seen_auth) == 1:
+            return httpx.Response(401, json={"error": "expired"})
+        return httpx.Response(200, json={"aspsps": []})
+
+    with _make_client(handler) as client:
+        assert list_aspsps(client, country="FR") == []
+
+    assert seen_auth == ["Bearer first-token", "Bearer second-token"]

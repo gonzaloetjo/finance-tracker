@@ -29,6 +29,13 @@ KEYRING_USER = "api-key"
 # Redact anything that looks like an Anthropic-style key before persisting to
 # llm_runs.error or printing. Covers sk-ant-... and api_... variants.
 _KEY_REDACT_RE = re.compile(r"(sk-ant-[A-Za-z0-9_\-]+|api[_-][A-Za-z0-9]{20,})")
+_IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b")
+_CARD_TOKEN_RE = re.compile(r"\b(?:\d{4}X{4,}|\d{4}[- ]?X{4,}[- ]?\d{2,4}|X{6,}\d{2,4})\b")
+_LONG_ID_RE = re.compile(r"\b\d{8,}\b")
+_REF_RE = re.compile(
+    r"\b(REF|REFERENCE|MDT|MANDAT|ID EMETTEUR|EREF|MREF)[/: ]+[A-Z0-9_.-]+\b", re.I
+)
+_PERSON_NAME_RE = re.compile(r"\b[A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}\b")
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -88,6 +95,18 @@ def redact_key(text: str | None) -> str | None:
     if not text:
         return text
     return _KEY_REDACT_RE.sub("[REDACTED-KEY]", text)
+
+
+def redact_prompt_text(text: str | None) -> str:
+    """Redact account/person/reference-shaped strings before LLM prompt use."""
+    if not text:
+        return ""
+    redacted = _IBAN_RE.sub("[REDACTED-IBAN]", text)
+    redacted = _CARD_TOKEN_RE.sub("[REDACTED-CARD]", redacted)
+    redacted = _REF_RE.sub(lambda m: f"{m.group(1)} [REDACTED-REF]", redacted)
+    redacted = _LONG_ID_RE.sub("[REDACTED-ID]", redacted)
+    redacted = _PERSON_NAME_RE.sub("[REDACTED-NAME]", redacted)
+    return redacted
 
 
 class LLMClient:
@@ -249,6 +268,7 @@ __all__ = [
     "finish_run",
     "log_run",
     "redact_key",
+    "redact_prompt_text",
     "resolve_api_key",
     "start_run",
     "store_api_key",

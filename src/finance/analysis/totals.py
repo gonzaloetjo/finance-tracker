@@ -125,7 +125,20 @@ def compute_totals(
         FROM streams s
         LEFT JOIN merchants m ON m.merchant_id = s.merchant_id
         WHERE s.active = 1
-        """
+          AND COALESCE(s.currency, 'EUR') = 'EUR'
+          AND (
+            ? = 0 OR EXISTS (
+              SELECT 1
+              FROM tx_enrichment e
+              JOIN transactions tx ON tx.tx_uid = e.tx_id
+              JOIN accounts a ON a.account_uid = tx.account_uid
+              WHERE e.stream_id = s.stream_id
+                AND COALESCE(a.excluded_from_spend, 0) = 0
+                AND tx.currency = 'EUR'
+            )
+          )
+        """,
+        (1 if spend_only else 0,),
     ).fetchall()
     for r in rows:
         monthly = _monthly_cost(r["median_amount"], r["classification"], r["median_days"])

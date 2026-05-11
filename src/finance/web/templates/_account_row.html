@@ -11,7 +11,8 @@
   <td class="py-2 px-3">
     <form hx-post="/accounts/{{ a.account_uid }}/toggle"
           hx-target="#acc-{{ a.account_uid }}"
-          hx-swap="outerHTML">
+          hx-swap="outerHTML"
+          hx-confirm="{% if a.excluded %}Include this account in spend analyses?{% else %}Exclude this account from spend analyses?{% endif %}">
       <button type="submit"
               class="text-xs px-2 py-1 rounded border
                 {% if a.excluded %}

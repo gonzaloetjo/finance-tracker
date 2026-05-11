@@ -17,6 +17,7 @@ clean:
     - USER
     - LOGNAME
     - SHELL
+    - PATH
     - TERM
     - COLORTERM
     - LANG

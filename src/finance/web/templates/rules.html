@@ -10,6 +10,7 @@
         hx-swap="innerHTML"
         hx-indicator="#reenrich-spinner"
         hx-disabled-elt="this"
+        hx-confirm="Re-enrich all transactions now?"
         class="text-sm px-3 py-1.5 bg-neutral-900 text-white rounded hover:bg-neutral-700"
       >Re-enrich all transactions</button>
       <span id="reenrich-spinner" class="htmx-indicator text-sm muted ml-2">running…</span>
@@ -23,7 +24,7 @@
     User-set and curated categories are never overwritten by rules.
   </p>
 
-  <div id="reenrich-result" class="mb-4"></div>
+  <div id="reenrich-result" class="mb-4" aria-live="polite"></div>
 
   <section class="border border-neutral-200 rounded bg-white overflow-x-auto mb-6">
     <div id="rules-table">
@@ -37,7 +38,7 @@
       hx-post="/rules/add"
       hx-target="#rules-table"
       hx-swap="innerHTML"
-      hx-on::after-request="if(event.detail.successful) this.reset()"
+      data-reset-on-success="true"
       class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end"
     >
       <label class="sm:col-span-7">

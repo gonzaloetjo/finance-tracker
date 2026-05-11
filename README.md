@@ -27,6 +27,7 @@ After the consent flow, sync transactions:
 
 ```bash
 uv run finance sync
+uv run finance sync --overlap-days 21  # override repeat-sync lookback if needed
 uv run finance analyze enrich            # build merchants + categories from the synced txs
 uv run finance list --since 2026-01-01
 ```
@@ -149,7 +150,7 @@ uv run finance analyze merchant <canonical_or_alias>                     # zoom-
 Interactively categorize the long tail:
 
 ```bash
-uv run finance merchant review [--limit 20] [--include-rule]   # wizard, writes source='user'
+uv run finance merchant review [--limit 20] [--include-rule] [--include-llm] [--include-auto]
 uv run finance enrich llm-categorize                           # auto via Anthropic
 ```
 
@@ -166,7 +167,7 @@ uv run finance merchant rename <old> <new>
 uv run finance merchant merge <src> <into>
 uv run finance merchant recluster [--apply] [--threshold 90]
 uv run finance merchant apply-merges [--dry-run]       # curated src/finance/data/merchant_merges.yaml
-uv run finance merchant seed-top [--limit 20]          # interactive curation of top uncategorized
+uv run finance merchant seed-top --seed-file <path> [--limit 20]
 ```
 
 Category precedence (highest wins): `tx_overrides` → `merchants.category` with `source='user'` → curated seed YAML → regex rules → LLM → NULL.
@@ -186,6 +187,7 @@ Categorize the uncategorized long tail (default model: `claude-haiku-4-5`):
 
 ```bash
 uv run finance enrich llm-categorize --dry-run         # preview proposals + token cost
+uv run finance enrich llm-categorize --preview-prompt  # print redacted prompt, no LLM call
 uv run finance enrich llm-categorize                   # auto-write ≥0.73 confidence
 uv run finance enrich llm-categorize --limit 50 --model claude-sonnet-4-6
 ```
@@ -202,7 +204,23 @@ uv run finance advise ls [--all]                        # list persisted advice
 uv run finance advise dismiss <id>                      # stop cache-hitting a stale row
 ```
 
-All `advise` commands accept `--model` and `--csv` / `--json`.
+All `advise` commands accept `--model` and `--json`. The payload is nested JSON,
+so there is no CSV mode for advisory commands.
+
+## Privacy and backups
+
+```bash
+uv run finance backup create --output <path> [--redacted]
+uv run finance privacy purge-raw
+uv run finance db decrypt-export --output <path>
+uv run finance db encrypt
+uv run finance sessions revoke <session_id>
+uv run finance sessions rm <session_id> --revoke
+```
+
+`db encrypt` writes a new encrypted file and preserves the plaintext DB. It
+prompts for the passphrase with hidden input; losing the passphrase means
+losing local transaction history.
 
 ## Cost observability
 
@@ -210,8 +228,9 @@ The `llm_runs` table logs every LLM call (tokens in/out, status, duration). Quic
 
 ```bash
 uv run python -c "
-import sqlite3, os
-c = sqlite3.connect(os.path.expanduser('~/.local/share/finance/finance.db'))
+import sqlite3
+from finance.config import get_settings
+c = sqlite3.connect(get_settings().db_path)
 for r in c.execute('SELECT kind, COUNT(*), SUM(input_tokens), SUM(output_tokens) FROM llm_runs WHERE status = \"ok\" GROUP BY 1'): print(r)
 "
 ```
@@ -246,4 +265,5 @@ zero cache hits.
 
 ```bash
 uv run pytest tests/                 # full suite (no network: LLM is mocked)
+uv run ruff format --check .
 ```

@@ -58,6 +58,16 @@ def find_recurring(
         FROM streams s
         JOIN merchants m ON m.merchant_id = s.merchant_id
         WHERE s.is_recurring = 1
+          AND COALESCE(s.currency, 'EUR') = 'EUR'
+          AND EXISTS (
+            SELECT 1
+            FROM tx_enrichment e
+            JOIN transactions tx ON tx.tx_uid = e.tx_id
+            JOIN accounts a ON a.account_uid = tx.account_uid
+            WHERE e.stream_id = s.stream_id
+              AND tx.currency = 'EUR'
+              AND COALESCE(a.excluded_from_spend, 0) = 0
+          )
     """
     if active_only:
         query += " AND s.active = 1"

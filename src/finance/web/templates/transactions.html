@@ -11,15 +11,15 @@
 {% if not rows %}
   <p class="text-neutral-600">No transactions since {{ since }}. Try <button
     hx-post="/sync" hx-target="#sync-result" class="underline">Sync now</button>.</p>
-  <div id="sync-result" class="mt-4"></div>
+  <div id="sync-result" class="mt-4" aria-live="polite"></div>
 {% else %}
   <table class="w-full bg-white border rounded text-sm">
     <thead class="bg-neutral-100 text-xs uppercase text-neutral-500">
       <tr>
-        <th class="px-3 py-2 text-left">Date</th>
-        <th class="px-3 py-2 text-right">Amount</th>
-        <th class="px-3 py-2 text-left">Party</th>
-        <th class="px-3 py-2 text-left">Memo</th>
+        <th scope="col" class="px-3 py-2 text-left">Date</th>
+        <th scope="col" class="px-3 py-2 text-right">Amount</th>
+        <th scope="col" class="px-3 py-2 text-left">Party</th>
+        <th scope="col" class="px-3 py-2 text-left">Memo</th>
       </tr>
     </thead>
     <tbody class="divide-y">

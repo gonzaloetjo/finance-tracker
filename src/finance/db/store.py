@@ -32,11 +32,47 @@ def _chmod_private(path: Path, mode: int) -> None:
         pass
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
+def load_sqlcipher_driver() -> Any:
+    """Return a DB-API compatible SQLCipher driver.
+
+    Prefer pysqlcipher3 when present, but accept sqlcipher3-binary's module too
+    so the reproducible devenv shell can provide working encryption without a
+    local C extension build.
+    """
+    try:
+        import pysqlcipher3.dbapi2 as driver  # type: ignore[import-not-found]
+
+        return driver
+    except Exception as first_error:  # noqa: BLE001
+        try:
+            import sqlcipher3.dbapi2 as driver  # type: ignore[import-not-found,import-untyped,no-redef]
+
+            return driver
+        except Exception as second_error:  # noqa: BLE001
+            raise RuntimeError(
+                "SQLCipher support requires pysqlcipher3 or sqlcipher3-binary"
+            ) from (second_error or first_error)
+
+
+def sql_literal(value: str) -> str:
+    # SQLite PRAGMA statements do not support DB-API bind parameters.
+    return "'" + value.replace("'", "''") + "'"
+
+
+def apply_sqlcipher_key(conn: Any, passphrase: str) -> None:
+    conn.execute(f"PRAGMA key = {sql_literal(passphrase)}")
+
+
+def connect(db_path: Path, *, passphrase: str | None = None) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     _chmod_private(db_path.parent, 0o700)
-    conn = sqlite3.connect(db_path, timeout=30.0)
-    conn.row_factory = sqlite3.Row
+    driver = sqlite3
+    if passphrase:
+        driver = load_sqlcipher_driver()
+    conn = driver.connect(db_path, timeout=30.0)
+    conn.row_factory = getattr(driver, "Row", sqlite3.Row)
+    if passphrase:
+        apply_sqlcipher_key(conn, passphrase)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA journal_mode = WAL")
@@ -73,16 +109,31 @@ _ALLOWED_MIGRATIONS = frozenset(
     {
         ("accounts", "excluded_from_spend", "INTEGER NOT NULL DEFAULT 0"),
         ("streams", "subscription_override", "INTEGER"),
+        ("streams", "txn_type_class", "TEXT"),
+        ("streams", "amount_sign", "INTEGER"),
+        ("streams", "currency", "TEXT"),
+        ("streams", "median_amount_minor", "INTEGER"),
+        ("transactions", "amount_minor", "INTEGER"),
         ("sync_runs", "transactions_fetched", "INTEGER"),
         ("sync_runs", "date_from", "TEXT"),
     }
 )
 
 _MIGRATIONS = (
-    ("0001_accounts_excluded_from_spend", "accounts", "excluded_from_spend", "INTEGER NOT NULL DEFAULT 0"),
+    (
+        "0001_accounts_excluded_from_spend",
+        "accounts",
+        "excluded_from_spend",
+        "INTEGER NOT NULL DEFAULT 0",
+    ),
     ("0002_streams_subscription_override", "streams", "subscription_override", "INTEGER"),
     ("0003_sync_runs_transactions_fetched", "sync_runs", "transactions_fetched", "INTEGER"),
     ("0004_sync_runs_date_from", "sync_runs", "date_from", "TEXT"),
+    ("0006_streams_txn_type_class", "streams", "txn_type_class", "TEXT"),
+    ("0007_streams_amount_sign", "streams", "amount_sign", "INTEGER"),
+    ("0008_streams_currency", "streams", "currency", "TEXT"),
+    ("0009_transactions_amount_minor", "transactions", "amount_minor", "INTEGER"),
+    ("0010_streams_median_amount_minor", "streams", "median_amount_minor", "INTEGER"),
 )
 
 
@@ -107,6 +158,10 @@ def _apply_migrations(conn: sqlite3.Connection) -> None:
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             (version, now),
         )
+    _migrate_transaction_identity(conn, applied_versions=applied, applied_at=now)
+    _backfill_minor_units(conn)
+    _ensure_transaction_identity_indexes(conn)
+    _ensure_transaction_compat_trigger(conn)
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -121,6 +176,162 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
     cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
     if column not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _migrate_transaction_identity(
+    conn: sqlite3.Connection, *, applied_versions: set[str], applied_at: str
+) -> None:
+    version = "0005_transaction_identity_tx_uid"
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(transactions)")}
+    if "tx_uid" in cols:
+        if version not in applied_versions:
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                (version, applied_at),
+            )
+        return
+
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE transactions_new (
+              tx_uid TEXT PRIMARY KEY,
+              transaction_id TEXT,
+              account_uid TEXT NOT NULL REFERENCES accounts(account_uid),
+              provider_transaction_id TEXT,
+              provider_entry_reference TEXT,
+              source_key TEXT,
+              booking_date TEXT,
+              value_date TEXT,
+              amount REAL NOT NULL,
+              amount_minor INTEGER,
+              currency TEXT NOT NULL,
+              creditor_name TEXT,
+              debtor_name TEXT,
+              remittance_info TEXT,
+              raw_json TEXT NOT NULL,
+              fetched_at TEXT NOT NULL,
+              UNIQUE(account_uid, source_key)
+            );
+
+            INSERT INTO transactions_new (
+              tx_uid, transaction_id, account_uid, provider_transaction_id,
+              provider_entry_reference, source_key, booking_date, value_date,
+              amount, amount_minor, currency, creditor_name, debtor_name, remittance_info,
+              raw_json, fetched_at
+            )
+            SELECT
+              transaction_id, transaction_id, account_uid, transaction_id,
+              NULL, transaction_id, booking_date, value_date,
+              amount, CAST(ROUND(amount * 100) AS INTEGER), currency, creditor_name, debtor_name, remittance_info,
+              raw_json, fetched_at
+            FROM transactions;
+
+            CREATE TABLE tx_enrichment_new (
+              tx_id TEXT PRIMARY KEY REFERENCES transactions(tx_uid) ON DELETE CASCADE,
+              txn_type TEXT,
+              merchant_id INTEGER REFERENCES merchants(merchant_id),
+              stream_id TEXT REFERENCES streams(stream_id),
+              memo_merchant_raw TEXT,
+              enriched_at TEXT NOT NULL
+            );
+            INSERT INTO tx_enrichment_new (
+              tx_id, txn_type, merchant_id, stream_id, memo_merchant_raw, enriched_at
+            )
+            SELECT tx_id, txn_type, merchant_id, stream_id, memo_merchant_raw, enriched_at
+            FROM tx_enrichment;
+
+            CREATE TABLE tx_overrides_new (
+              tx_id TEXT PRIMARY KEY REFERENCES transactions(tx_uid) ON DELETE CASCADE,
+              category TEXT NOT NULL,
+              note TEXT,
+              created_at TEXT NOT NULL
+            );
+            INSERT INTO tx_overrides_new (tx_id, category, note, created_at)
+            SELECT tx_id, category, note, created_at
+            FROM tx_overrides;
+
+            DROP TABLE tx_overrides;
+            ALTER TABLE tx_overrides_new RENAME TO tx_overrides;
+            DROP TABLE tx_enrichment;
+            ALTER TABLE tx_enrichment_new RENAME TO tx_enrichment;
+            DROP TABLE transactions;
+            ALTER TABLE transactions_new RENAME TO transactions;
+            """
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _ensure_transaction_identity_indexes(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tx_provider_id ON transactions(provider_transaction_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tx_account_date ON transactions(account_uid, booking_date DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tx_booking_date ON transactions(booking_date DESC)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_enrichment_merchant ON tx_enrichment(merchant_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_enrichment_stream ON tx_enrichment(stream_id)")
+
+
+def _backfill_minor_units(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        UPDATE transactions
+           SET amount_minor = CAST(ROUND(amount * 100) AS INTEGER)
+         WHERE amount_minor IS NULL
+           AND currency = 'EUR'
+        """
+    )
+    conn.execute(
+        """
+        UPDATE streams
+           SET median_amount_minor = CAST(ROUND(median_amount * 100) AS INTEGER)
+         WHERE median_amount_minor IS NULL
+           AND currency = 'EUR'
+        """
+    )
+
+
+def _ensure_transaction_compat_trigger(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TRIGGER IF NOT EXISTS transactions_fill_compat_ids
+        AFTER INSERT ON transactions
+        WHEN NEW.tx_uid IS NULL OR NEW.transaction_id IS NULL OR NEW.source_key IS NULL
+          OR NEW.amount_minor IS NULL
+        BEGIN
+          UPDATE transactions
+             SET tx_uid = COALESCE(tx_uid, transaction_id),
+                 transaction_id = COALESCE(transaction_id, tx_uid),
+                 amount_minor = COALESCE(
+                   amount_minor,
+                   CASE WHEN currency = 'EUR' THEN CAST(ROUND(amount * 100) AS INTEGER) END
+                 ),
+                 provider_transaction_id = COALESCE(
+                   provider_transaction_id,
+                   transaction_id,
+                   tx_uid
+                 ),
+                 source_key = COALESCE(
+                   source_key,
+                   provider_transaction_id,
+                   provider_entry_reference,
+                   transaction_id,
+                   tx_uid
+                 )
+           WHERE rowid = NEW.rowid;
+        END;
+        """
+    )
 
 
 @dataclass(frozen=True)
@@ -162,11 +373,13 @@ def try_acquire_job_lock(
 
 
 def release_job_lock(conn: sqlite3.Connection, lock: JobLock) -> None:
+    was_in_transaction = conn.in_transaction
     conn.execute(
         "DELETE FROM job_locks WHERE lock_key = ? AND owner = ?",
         (lock.lock_key, lock.owner),
     )
-    conn.commit()
+    if not was_in_transaction:
+        conn.commit()
 
 
 def persist_session(conn: sqlite3.Connection, session: SessionResponse) -> None:

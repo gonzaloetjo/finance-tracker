@@ -32,17 +32,23 @@ CREATE TABLE IF NOT EXISTS balances (
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
-  transaction_id TEXT PRIMARY KEY,
+  tx_uid TEXT PRIMARY KEY,
+  transaction_id TEXT,               -- compatibility/provider id; not locally unique
   account_uid TEXT NOT NULL REFERENCES accounts(account_uid),
+  provider_transaction_id TEXT,
+  provider_entry_reference TEXT,
+  source_key TEXT,
   booking_date TEXT,
   value_date TEXT,
   amount REAL NOT NULL,
+  amount_minor INTEGER,
   currency TEXT NOT NULL,
   creditor_name TEXT,
   debtor_name TEXT,
   remittance_info TEXT,
   raw_json TEXT NOT NULL,
-  fetched_at TEXT NOT NULL
+  fetched_at TEXT NOT NULL,
+  UNIQUE(account_uid, source_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_tx_account_date
@@ -102,7 +108,11 @@ CREATE TABLE IF NOT EXISTS streams (
   stream_id TEXT PRIMARY KEY,     -- IMMUTABLE: sha1(merchant_id + flat ±15% band bucket)[:16]
   merchant_id INTEGER NOT NULL REFERENCES merchants(merchant_id),
   txn_type TEXT,
+  txn_type_class TEXT,
+  amount_sign INTEGER,
+  currency TEXT,
   median_amount REAL,
+  median_amount_minor INTEGER,
   amount_tolerance REAL,           -- classification-driven, descriptive only
   median_days INTEGER,
   regularity REAL,
@@ -118,7 +128,7 @@ CREATE TABLE IF NOT EXISTS streams (
 );
 
 CREATE TABLE IF NOT EXISTS tx_enrichment (
-  tx_id TEXT PRIMARY KEY REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+  tx_id TEXT PRIMARY KEY REFERENCES transactions(tx_uid) ON DELETE CASCADE,
   txn_type TEXT,                   -- FACTURE|PRLV|VIR|VIREMENT|FRAIS|RETRAIT|INTERETS|OTHER
   merchant_id INTEGER REFERENCES merchants(merchant_id),
   stream_id TEXT REFERENCES streams(stream_id),
@@ -127,7 +137,7 @@ CREATE TABLE IF NOT EXISTS tx_enrichment (
 );
 
 CREATE TABLE IF NOT EXISTS tx_overrides (
-  tx_id TEXT PRIMARY KEY REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+  tx_id TEXT PRIMARY KEY REFERENCES transactions(tx_uid) ON DELETE CASCADE,
   category TEXT NOT NULL,
   note TEXT,
   created_at TEXT NOT NULL

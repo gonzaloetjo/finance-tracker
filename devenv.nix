@@ -5,10 +5,12 @@
 
   packages = [
     pkgs.bashInteractive
+    pkgs.coreutils
     pkgs.curl
     pkgs.git
     pkgs.jq
     pkgs.openssl
+    pkgs.perl
     pkgs.shellcheck
     pkgs.sqlite
     pkgs.statix

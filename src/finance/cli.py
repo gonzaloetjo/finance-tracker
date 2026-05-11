@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import re
 import secrets
+import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC
 from pathlib import Path
 
+import httpx
 import typer
 
 from finance.auth.keys import (
@@ -194,8 +196,14 @@ def aspsps(
     """List ASPSPs (banks) available via Enable Banking for the given country."""
     settings = get_settings()
     cfg = load_config(settings)
-    with _load_client(settings, cfg) as client:
-        items = list_aspsps(client, country=country, service=service, psu_type=psu_type)
+    try:
+        with _load_client(settings, cfg) as client:
+            items = list_aspsps(client, country=country, service=service, psu_type=psu_type)
+    except httpx.HTTPStatusError as e:
+        from finance.eb.client import explain_eb_error
+
+        typer.echo(explain_eb_error(e), err=True)
+        raise typer.Exit(code=1) from None
     if not items:
         typer.echo(f"No ASPSPs found for country={country} service={service} psu_type={psu_type}")
         raise typer.Exit(code=1)
@@ -211,13 +219,32 @@ def sync(
     cold_start_days: int = typer.Option(
         90, "--cold-start-days", help="How far back to go on first sync"
     ),
+    overlap_days: int | None = typer.Option(
+        None,
+        "--overlap-days",
+        min=0,
+        help="Look back this many days on repeat syncs (default: data-informed, fallback 21)",
+    ),
 ) -> None:
     """Fetch new transactions from Enable Banking for all active accounts."""
     settings = get_settings()
     cfg = load_config(settings)
     rules = load_rules(settings.rules_path)
-    with _load_client(settings, cfg) as client, _open_db() as conn:
-        results = sync_all_accounts(conn, client, cold_start_days=cold_start_days, rules=rules)
+    try:
+        with _load_client(settings, cfg) as client, _open_db() as conn:
+            results = sync_all_accounts(
+                conn,
+                client,
+                cold_start_days=cold_start_days,
+                overlap_days=overlap_days if overlap_days is not None else cfg.sync_overlap_days,
+                minimal_retention=cfg.minimal_retention,
+                rules=rules,
+            )
+    except httpx.HTTPStatusError as e:
+        from finance.eb.client import explain_eb_error
+
+        typer.echo(explain_eb_error(e), err=True)
+        raise typer.Exit(code=1) from None
 
     if not results:
         typer.echo("No accounts — run 'finance serve' and complete a consent flow first")
@@ -324,8 +351,7 @@ def serve(
         typer.echo(f"  TLS: self-signed cert at {tls_paths.cert}")
         typer.echo("  Browser will warn 'Not Secure' — that's normal for localhost; accept once.")
     typer.echo(
-        f"→ Open {scheme}://{host}:{port}/?token={dashboard_token}  "
-        f"(callback: {cfg.callback_url})"
+        f"→ Open {scheme}://{host}:{port}/?token={dashboard_token}  (callback: {cfg.callback_url})"
     )
     uvicorn.run(web_app, **kwargs)
 
@@ -440,7 +466,13 @@ accounts_app = typer.Typer(help="Manage connected accounts + spend-exclusion fla
 app.add_typer(accounts_app, name="accounts")
 
 sessions_app = typer.Typer(help="Manage Enable Banking consent sessions")
+db_app = typer.Typer(help="Database encryption and export")
+backup_app = typer.Typer(help="Create local database backups")
+privacy_app = typer.Typer(help="Privacy retention and raw-data controls")
 app.add_typer(sessions_app, name="sessions")
+app.add_typer(db_app, name="db")
+app.add_typer(backup_app, name="backup")
+app.add_typer(privacy_app, name="privacy")
 
 
 @contextmanager
@@ -484,6 +516,48 @@ def analyze_enrich(
     if summary.errors:
         for e in summary.errors:
             typer.echo(f"  ! {e}", err=True)
+
+
+@analyze_app.command("recompute-streams")
+def analyze_recompute_streams(
+    report_orphan_overrides: bool = typer.Option(
+        False,
+        "--report-orphan-overrides",
+        help="Dry-run stream repartitioning and report overrides that need review",
+    ),
+) -> None:
+    """Recompute stream membership from enriched transactions."""
+    from finance.analysis.streams import group_streams
+    from finance.analysis.streams import report_orphan_overrides as report_overrides
+
+    with _open_db() as conn:
+        if report_orphan_overrides:
+            report = report_overrides(conn)
+            typer.echo(f"preserved overrides: {len(report.preserved)}")
+            for old_sid, new_sid in sorted(report.preserved.items()):
+                typer.echo(f"  {old_sid} -> {new_sid}")
+            if report.split:
+                typer.echo("split overrides needing review:", err=True)
+                for issue in report.split:
+                    typer.echo(
+                        f"  {issue.old_stream_id} override={issue.subscription_override} "
+                        f"would split into {', '.join(issue.new_stream_ids)}",
+                        err=True,
+                    )
+            if report.orphaned:
+                typer.echo("orphaned overrides needing review:", err=True)
+                for issue in report.orphaned:
+                    typer.echo(
+                        f"  {issue.old_stream_id} override={issue.subscription_override} "
+                        "has no enriched transactions",
+                        err=True,
+                    )
+            if report.has_issues:
+                raise typer.Exit(code=1)
+            return
+        with conn:
+            streams = group_streams(conn)
+    typer.echo(f"recomputed streams: {len(streams)}")
 
 
 def _fmt(csv: bool, json_: bool):
@@ -802,10 +876,12 @@ def label(
     """Set a transaction-level category override (highest precedence)."""
     from datetime import datetime
 
+    from finance.taxonomy import validate_category
+
+    category = validate_category(category, source="transaction override")
+
     with _open_db() as conn, conn:
-        exists = conn.execute(
-            "SELECT 1 FROM transactions WHERE transaction_id = ?", (tx_id,)
-        ).fetchone()
+        exists = conn.execute("SELECT 1 FROM transactions WHERE tx_uid = ?", (tx_id,)).fetchone()
         if not exists:
             typer.echo(f"No transaction with id '{tx_id}'", err=True)
             raise typer.Exit(code=1)
@@ -1046,7 +1122,7 @@ def merchant_review(
                    COUNT(*)       AS n,
                    MAX(t.booking_date) AS last_seen
             FROM transactions t
-            JOIN tx_enrichment e ON e.tx_id = t.transaction_id
+            JOIN tx_enrichment e ON e.tx_id = t.tx_uid
             JOIN merchants m ON m.merchant_id = e.merchant_id
             JOIN accounts a ON a.account_uid = t.account_uid
             WHERE t.amount < 0 AND t.currency = 'EUR'
@@ -1091,7 +1167,7 @@ def merchant_review(
                 """
                 SELECT t.remittance_info
                 FROM tx_enrichment e
-                JOIN transactions t ON t.transaction_id = e.tx_id
+                JOIN transactions t ON t.tx_uid = e.tx_id
                 WHERE e.merchant_id = ?
                 ORDER BY t.booking_date DESC
                 LIMIT 3
@@ -1142,20 +1218,23 @@ def merchant_review(
 @merchant_app.command("seed-top")
 def merchant_seed_top(
     limit: int = typer.Option(20, "--limit"),
+    seed_file: Path = typer.Option(
+        ...,
+        "--seed-file",
+        help="YAML file to append curated merchant categories to",
+    ),
 ) -> None:
     """Interactively curate the top-N uncategorized merchants by outflow.
 
     Appends `CANONICAL: category` entries to src/finance/data/merchants_seed.yaml
     in the working copy (editable). After, run `finance analyze enrich --reenrich`.
     """
-    from pathlib import Path
-
     with _open_db() as conn:
         rows = conn.execute(
             """
             SELECT m.canonical_name, SUM(-t.amount) AS spent, COUNT(*) AS n
             FROM transactions t
-            JOIN tx_enrichment e ON e.tx_id = t.transaction_id
+            JOIN tx_enrichment e ON e.tx_id = t.tx_uid
             JOIN merchants m ON m.merchant_id = e.merchant_id
             WHERE t.amount < 0 AND t.currency = 'EUR'
               AND (m.category IS NULL OR m.category_source NOT IN ('user', 'curated'))
@@ -1170,9 +1249,7 @@ def merchant_seed_top(
         typer.echo("No uncategorized merchants to curate.")
         return
 
-    # Locate the seed file in the repo (we want to edit source, not the installed copy).
-    repo_seed = Path(__file__).resolve().parent / "data" / "merchants_seed.yaml"
-    typer.echo(f"Appending to: {repo_seed}\n")
+    typer.echo(f"Appending to: {seed_file}\n")
 
     additions: list[str] = []
     for r in rows:
@@ -1189,7 +1266,8 @@ def merchant_seed_top(
         typer.echo("Nothing appended.")
         return
 
-    with repo_seed.open("a") as f:
+    seed_file.parent.mkdir(parents=True, exist_ok=True)
+    with seed_file.open("a") as f:
         f.write("\n# Appended by `finance merchant seed-top`\n")
         for line in additions:
             f.write(line + "\n")
@@ -1296,6 +1374,7 @@ def sessions_ls() -> None:
 def sessions_rm(
     session_id: str = typer.Argument(...),
     force: bool = typer.Option(False, "--force", help="Skip confirmation"),
+    revoke: bool = typer.Option(False, "--revoke", help="Revoke Enable Banking consent first"),
 ) -> None:
     """Cascade-delete a session: transactions → balances → sync_runs → accounts → session.
 
@@ -1330,6 +1409,9 @@ def sessions_rm(
             typer.echo("Aborted.")
             raise typer.Exit(code=1)
 
+        if revoke:
+            _revoke_session_remote_and_mark(conn, session_id)
+
         with conn:
             conn.execute(
                 "DELETE FROM transactions WHERE account_uid IN"
@@ -1349,6 +1431,186 @@ def sessions_rm(
             conn.execute("DELETE FROM accounts WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
     typer.echo("Done. Consider: uv run finance analyze enrich --reenrich")
+
+
+@sessions_app.command("revoke")
+def sessions_revoke(session_id: str = typer.Argument(...)) -> None:
+    """Revoke an Enable Banking consent session and mark it locally."""
+    with _open_db() as conn:
+        _revoke_session_remote_and_mark(conn, session_id)
+    typer.echo(f"revoked: {session_id}")
+
+
+def _revoke_session_remote_and_mark(conn, session_id: str) -> None:
+    from datetime import datetime
+
+    from finance.eb.flows import revoke_session
+
+    row = conn.execute("SELECT 1 FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+    if row is None:
+        typer.echo(f"No session with id={session_id}", err=True)
+        raise typer.Exit(code=1)
+    settings = get_settings()
+    cfg = load_config(settings)
+    try:
+        with _load_client(settings, cfg) as client:
+            revoke_session(client, session_id)
+    except httpx.HTTPStatusError as e:
+        from finance.eb.client import explain_eb_error
+
+        typer.echo(explain_eb_error(e), err=True)
+        raise typer.Exit(code=1) from None
+    conn.execute(
+        "UPDATE sessions SET revoked_at = ? WHERE session_id = ?",
+        (datetime.now(UTC).isoformat(), session_id),
+    )
+    conn.commit()
+
+
+def _copy_database(src: Path, dst: Path) -> None:
+    if not src.exists():
+        typer.echo(f"Database not found: {src}", err=True)
+        raise typer.Exit(code=1)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        typer.echo(f"Refusing to overwrite {dst}", err=True)
+        raise typer.Exit(code=1)
+    with store.connect(src) as source, sqlite3.connect(dst) as target:
+        source.backup(target)
+    try:
+        dst.chmod(0o600)
+    except OSError:
+        pass
+
+
+def _redact_export(path: Path) -> None:
+    with store.connect(path) as conn:
+        store.init_schema(conn)
+        with conn:
+            conn.execute("UPDATE accounts SET iban = NULL, raw_json = '{}', name = '[REDACTED]'")
+            conn.execute(
+                """
+                UPDATE transactions
+                   SET raw_json = '{}',
+                       remittance_info = '[REDACTED]',
+                       creditor_name = NULL,
+                       debtor_name = NULL,
+                       transaction_id = tx_uid,
+                       provider_transaction_id = NULL,
+                       provider_entry_reference = NULL,
+                       source_key = tx_uid
+                """
+            )
+
+
+@backup_app.command("create")
+def backup_create(
+    output: Path = typer.Option(..., "--output", "-o", help="Backup file path"),
+    redacted: bool = typer.Option(False, "--redacted", help="Remove raw personal/provider fields"),
+) -> None:
+    """Create a local SQLite backup; --redacted strips raw bank payloads."""
+    settings = get_settings()
+    _copy_database(settings.db_path, output)
+    if redacted:
+        _redact_export(output)
+    marker = settings.data_dir / ".last-backup"
+    marker.write_text(str(output))
+    typer.echo(f"backup written: {output}")
+
+
+@db_app.command("encrypt")
+def db_encrypt(
+    output: Path | None = typer.Option(None, "--output", help="Encrypted DB path"),
+) -> None:
+    """Create a new encrypted DB file; plaintext is never overwritten or deleted.
+
+    Losing the passphrase means losing local transaction history.
+    """
+    settings = get_settings()
+    src = settings.db_path
+    target = output or src.with_suffix(".encrypted.db")
+    backup_marker = settings.data_dir / ".last-backup"
+    if not backup_marker.exists():
+        typer.echo(
+            "Refusing to encrypt before a backup exists. Run "
+            "`finance backup create --output <path>` first.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    passphrase = typer.prompt(
+        "Encryption passphrase (losing it means losing local transaction history)",
+        hide_input=True,
+        confirmation_prompt=True,
+    )
+    if not passphrase:
+        typer.echo("Passphrase cannot be empty", err=True)
+        raise typer.Exit(code=1)
+    try:
+        sqlcipher = store.load_sqlcipher_driver()
+    except RuntimeError:
+        typer.echo(
+            "SQLCipher support is not installed, so no encrypted DB was written. "
+            "Install pysqlcipher3 or sqlcipher3-binary and retry; plaintext remains unchanged.",
+            err=True,
+        )
+        raise typer.Exit(code=1) from None
+    if target.exists():
+        typer.echo(f"Refusing to overwrite {target}", err=True)
+        raise typer.Exit(code=1)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    plain = sqlcipher.connect(src)
+    try:
+        try:
+            plain.execute(
+                f"ATTACH DATABASE {store.sql_literal(str(target))} "
+                f"AS encrypted KEY {store.sql_literal(passphrase)}"
+            )
+            plain.execute("SELECT sqlcipher_export('encrypted')")
+            plain.execute("DETACH DATABASE encrypted")
+            plain.commit()
+        except Exception:
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+    finally:
+        plain.close()
+    enc = sqlcipher.connect(target)
+    try:
+        store.apply_sqlcipher_key(enc, passphrase)
+        result = enc.execute("PRAGMA cipher_integrity_check").fetchone()
+        if result is not None and str(result[0]).lower() != "ok":
+            typer.echo(f"Encrypted DB integrity check failed: {result[0]}", err=True)
+            raise typer.Exit(code=1)
+        enc.commit()
+    finally:
+        enc.close()
+    try:
+        target.chmod(0o600)
+    except OSError:
+        pass
+    typer.echo(f"encrypted DB written: {target}")
+    typer.echo(f"Plaintext preserved: {src}")
+
+
+@db_app.command("decrypt-export")
+def db_decrypt_export(
+    output: Path = typer.Option(..., "--output", "-o", help="Plain SQLite export path"),
+) -> None:
+    """Write an explicit local recovery/debug export of the current DB."""
+    settings = get_settings()
+    _copy_database(settings.db_path, output)
+    typer.echo(f"plaintext export written: {output}")
+
+
+@privacy_app.command("purge-raw")
+def privacy_purge_raw() -> None:
+    """Remove retained raw bank JSON payloads from the local DB."""
+    with _open_db() as conn, conn:
+        conn.execute("UPDATE accounts SET raw_json = '{}'")
+        conn.execute("UPDATE transactions SET raw_json = '{}'")
+    typer.echo("purged raw_json from accounts and transactions")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1387,6 +1649,11 @@ def enrich_llm_categorize(
     limit: int = typer.Option(150, "--limit", help="Max merchants per run"),
     model: str | None = typer.Option(None, "--model", help="Override model (default: haiku)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Propose without writing"),
+    preview_prompt: bool = typer.Option(
+        False,
+        "--preview-prompt",
+        help="Print the redacted prompt that would be sent, without calling an LLM",
+    ),
     provider: str = typer.Option(
         "api",
         "--provider",
@@ -1396,9 +1663,21 @@ def enrich_llm_categorize(
     ),
 ) -> None:
     """Categorize merchants whose `category_source` is not user/curated."""
-    from finance.llm.categorize import AUTO_WRITE_THRESHOLD, categorize_uncategorized
+    from finance.llm.categorize import (
+        AUTO_WRITE_THRESHOLD,
+        build_user_message,
+        categorize_uncategorized,
+        collect_uncategorized,
+    )
     from finance.llm.client import DEFAULT_CATEGORIZE_MODEL
     from finance.llm.providers import ClaudeCLIError, make_provider
+
+    chosen_model = model or DEFAULT_CATEGORIZE_MODEL
+    if preview_prompt:
+        with _open_db() as conn:
+            merchants = collect_uncategorized(conn, limit=limit)
+        typer.echo(build_user_message(merchants))
+        return
 
     try:
         llm = make_provider(provider) if provider != "api" else _make_llm_client()
@@ -1408,8 +1687,6 @@ def enrich_llm_categorize(
     except ValueError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1) from None
-
-    chosen_model = model or DEFAULT_CATEGORIZE_MODEL
     with _open_db() as conn:
         lock = store.try_acquire_job_lock(conn, "llm:categorize", ttl_seconds=3600)
         if lock is None:
@@ -1466,19 +1743,13 @@ def _emit_advice(payload: dict, fmt: str) -> None:
     """Advisory payloads are nested JSON; default is JSON pretty-print."""
     import json as _json
 
-    if fmt == "csv":
-        typer.echo(_json.dumps(payload))  # no natural CSV shape — emit JSON
-    elif fmt == "json":
-        typer.echo(_json.dumps(payload, indent=2, ensure_ascii=False))
-    else:
-        typer.echo(_json.dumps(payload, indent=2, ensure_ascii=False))
+    typer.echo(_json.dumps(payload, indent=2, ensure_ascii=False))
 
 
 @advise_app.command("subscriptions")
 def advise_subscriptions_cmd(
     refresh: bool = typer.Option(False, "--refresh", help="Bypass cache"),
     model: str | None = typer.Option(None, "--model"),
-    csv: bool = typer.Option(False, "--csv"),
     json_: bool = typer.Option(False, "--json"),
 ) -> None:
     """LLM recommendations over subscription overlaps."""
@@ -1492,7 +1763,7 @@ def advise_subscriptions_cmd(
 
     marker = "(cache hit)" if result.cached else f"(new call, model={result.model})"
     typer.echo(f"# subscriptions advice  {marker}\n")
-    _emit_advice(result.payload, _fmt(csv, json_))
+    _emit_advice(result.payload, _fmt(False, json_))
 
 
 @advise_app.command("cutbacks")
@@ -1500,7 +1771,6 @@ def advise_cutbacks_cmd(
     months: int = typer.Option(6, "--months"),
     refresh: bool = typer.Option(False, "--refresh"),
     model: str | None = typer.Option(None, "--model"),
-    csv: bool = typer.Option(False, "--csv"),
     json_: bool = typer.Option(False, "--json"),
 ) -> None:
     """LLM cutback targets (top-growth categories + under-used subs)."""
@@ -1514,14 +1784,13 @@ def advise_cutbacks_cmd(
 
     marker = "(cache hit)" if result.cached else f"(new call, model={result.model})"
     typer.echo(f"# cutbacks advice  {marker}\n")
-    _emit_advice(result.payload, _fmt(csv, json_))
+    _emit_advice(result.payload, _fmt(False, json_))
 
 
 @advise_app.command("integral-offers")
 def advise_integral_cmd(
     refresh: bool = typer.Option(False, "--refresh"),
     model: str | None = typer.Option(None, "--model"),
-    csv: bool = typer.Option(False, "--csv"),
     json_: bool = typer.Option(False, "--json"),
 ) -> None:
     """LLM suggestions for cross-domain bundled offers."""
@@ -1535,7 +1804,7 @@ def advise_integral_cmd(
 
     marker = "(cache hit)" if result.cached else f"(new call, model={result.model})"
     typer.echo(f"# integral-offers advice  {marker}\n")
-    _emit_advice(result.payload, _fmt(csv, json_))
+    _emit_advice(result.payload, _fmt(False, json_))
 
 
 @advise_app.command("ls")

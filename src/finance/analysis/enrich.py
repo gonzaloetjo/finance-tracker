@@ -57,17 +57,17 @@ def enrich_transactions(
     # Find transactions to enrich
     if reenrich:
         query = """
-            SELECT t.transaction_id, t.account_uid, t.creditor_name,
+            SELECT t.tx_uid AS transaction_id, t.account_uid, t.creditor_name,
                    t.debtor_name, t.remittance_info
             FROM transactions t
         """
         params: list = []
     else:
         query = """
-            SELECT t.transaction_id, t.account_uid, t.creditor_name,
+            SELECT t.tx_uid AS transaction_id, t.account_uid, t.creditor_name,
                    t.debtor_name, t.remittance_info
             FROM transactions t
-            LEFT JOIN tx_enrichment e ON e.tx_id = t.transaction_id
+            LEFT JOIN tx_enrichment e ON e.tx_id = t.tx_uid
             WHERE e.tx_id IS NULL
         """
         params = []

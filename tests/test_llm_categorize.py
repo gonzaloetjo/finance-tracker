@@ -11,7 +11,9 @@ from finance.llm.categorize import (
     CategorizeResponse,
     CategorizeSummary,
     CategoryResult,
+    MerchantInput,
     _apply_proposals,
+    build_user_message,
     categorize_uncategorized,
     collect_uncategorized,
     load_taxonomy,
@@ -238,7 +240,29 @@ def test_categorize_dry_run_never_writes(tmp_path):
         row = conn.execute(
             "SELECT category FROM merchants WHERE canonical_name='NETFLIX'"
         ).fetchone()
-        assert row[0] is None
+    assert row[0] is None
+
+
+def test_build_user_message_redacts_sensitive_memo_tokens():
+    message = build_user_message(
+        [
+            MerchantInput(
+                merchant_id=1,
+                canonical_name="SOME MERCHANT",
+                example_memos=[
+                    "VIR SEPA /DE Jean Dupont IBAN FR7630006000011234567890189 "
+                    "CARTE 0000XXXXXXXX1234 REF ABC123456789"
+                ],
+            )
+        ]
+    )
+
+    assert "FR7630006000011234567890189" not in message
+    assert "Jean Dupont" not in message
+    assert "0000XXXXXXXX1234" not in message
+    assert "ABC123456789" not in message
+    assert "[REDACTED-IBAN]" in message
+    assert "[REDACTED-NAME]" in message
 
 
 def test_categorize_excludes_user_source(tmp_path):

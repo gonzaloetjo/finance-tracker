@@ -7,7 +7,7 @@ from finance.auth.keys import generate_keypair
 from finance.db import store
 from finance.eb.client import EnableBankingClient
 from finance.eb.models import Account, AspspRef, SessionResponse
-from finance.sync import sync_account, sync_all_accounts
+from finance.sync import recover_stale_sync_runs, sync_account, sync_all_accounts
 
 
 def _seed_session(conn, account_uid="acc-1"):
@@ -155,7 +155,7 @@ def test_sync_uses_last_booking_date_as_date_from(conn):
     with _make_client(handler_2) as client:
         sync_account(conn, client, "acc-1")
 
-    assert "date_from=2026-02-15" in captured["url"]
+    assert "date_from=2026-01-01" in captured["url"]
 
 
 def test_sync_records_error(conn):
@@ -222,13 +222,87 @@ def test_transaction_without_id_gets_stable_hash_key(conn):
     assert r2.added == 0  # hash-based key still dedupes
 
 
+def test_same_provider_transaction_id_on_two_accounts_persists_two_rows(conn):
+    _seed_session(conn, account_uid="acc-2")
+
+    def handler(_req):
+        return httpx.Response(
+            200,
+            json={
+                "transactions": [
+                    {
+                        "transaction_id": "provider-dup",
+                        "transaction_amount": {"currency": "EUR", "amount": "5.00"},
+                        "credit_debit_indicator": "DBIT",
+                        "booking_date": "2026-03-20",
+                    }
+                ],
+                "continuation_key": None,
+            },
+        )
+
+    with _make_client(handler) as client:
+        r1 = sync_account(conn, client, "acc-1")
+        r2 = sync_account(conn, client, "acc-2")
+
+    assert r1.added == 1
+    assert r2.added == 1
+    rows = conn.execute(
+        """
+        SELECT tx_uid, account_uid, provider_transaction_id, source_key
+        FROM transactions
+        WHERE provider_transaction_id = 'provider-dup'
+        ORDER BY account_uid
+        """
+    ).fetchall()
+    assert [r["account_uid"] for r in rows] == ["acc-1", "acc-2"]
+    assert rows[0]["tx_uid"] != rows[1]["tx_uid"]
+    assert {r["source_key"] for r in rows} == {"provider-dup"}
+
+
+def test_corrected_provider_transaction_updates_mutable_fields(conn):
+    amounts = ["5.00", "7.50"]
+
+    def handler(_req):
+        amount = amounts.pop(0)
+        return httpx.Response(
+            200,
+            json={
+                "transactions": [
+                    {
+                        "transaction_id": "corrected",
+                        "transaction_amount": {"currency": "EUR", "amount": amount},
+                        "credit_debit_indicator": "DBIT",
+                        "booking_date": "2026-03-20",
+                        "remittance_information": [f"amount {amount}"],
+                    }
+                ],
+                "continuation_key": None,
+            },
+        )
+
+    with _make_client(handler) as client:
+        r1 = sync_account(conn, client, "acc-1", overlap_days=0)
+        r2 = sync_account(conn, client, "acc-1", overlap_days=0)
+
+    assert r1.added == 1
+    assert r2.added == 0
+    row = conn.execute(
+        "SELECT amount, remittance_info FROM transactions WHERE provider_transaction_id = 'corrected'"
+    ).fetchone()
+    assert row["amount"] == -7.50
+    assert row["remittance_info"] == "amount 7.50"
+
+
 def test_sync_all_accounts_logs_enrich_failure_and_continues(conn, monkeypatch, capsys):
     """If auto-enrich raises, sync_all_accounts must still return its sync
     results and surface a recovery hint to stderr — sync_account already
     committed per-account, so the data is on disk and a manual
     `finance analyze enrich` will recover the merchant layer.
     """
-    def boom(*_args, **_kwargs):
+
+    def boom(conn, *_args, **_kwargs):
+        conn.execute("INSERT INTO merchants (canonical_name) VALUES ('PARTIAL WRITE')")
         raise RuntimeError("simulated enrich crash")
 
     monkeypatch.setattr("finance.analysis.enrich.enrich_transactions", boom)
@@ -266,6 +340,10 @@ def test_sync_all_accounts_logs_enrich_failure_and_continues(conn, monkeypatch, 
         "SELECT transaction_id FROM transactions WHERE transaction_id = 'tx-en-1'"
     ).fetchone()
     assert row is not None
+    partial = conn.execute(
+        "SELECT merchant_id FROM merchants WHERE canonical_name = 'PARTIAL WRITE'"
+    ).fetchone()
+    assert partial is None
 
 
 def test_sync_all_accounts_returns_error_when_lock_is_held(conn):
@@ -284,3 +362,23 @@ def test_sync_all_accounts_returns_error_when_lock_is_held(conn):
     assert len(results) == 1
     assert results[0].status == "error"
     assert results[0].error == "sync already running"
+
+
+def test_recover_stale_sync_runs_finalizes_interrupted_rows(conn):
+    conn.execute(
+        """
+        INSERT INTO sync_runs (account_uid, started_at, status)
+        VALUES ('acc-1', '2026-01-01T00:00:00+00:00', 'running')
+        """
+    )
+    conn.commit()
+
+    recovered = recover_stale_sync_runs(conn, account_uid="acc-1")
+
+    assert recovered == 1
+    row = conn.execute(
+        "SELECT status, ended_at, error FROM sync_runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert row["status"] == "error"
+    assert row["ended_at"] is not None
+    assert "recovered stale running sync" in row["error"]

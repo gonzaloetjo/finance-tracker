@@ -36,7 +36,8 @@
         <span class="text-xs muted">
           <strong>API</strong>: Haiku, ~3¢/run, fast (~30s).
           <strong>Claude Code</strong>: uses your subscription, slower (minutes),
-          has WebSearch for unfamiliar merchants.
+          has WebSearch for unfamiliar merchants. Sends merchant names, categories,
+          recent memo snippets, and spend totals; no IBANs or raw account JSON.
         </span>
       </div>
 
@@ -48,7 +49,8 @@
           class="mt-2"
           hx-get="/llm/progress"
           hx-trigger="load, every 2s"
-          hx-swap="innerHTML">
+          hx-swap="innerHTML"
+          aria-live="polite">
           <span class="muted">live status loading…</span>
         </div>
       </div>
@@ -61,12 +63,13 @@
           class="mt-2"
           hx-get="/llm/progress"
           hx-trigger="load, every 2s"
-          hx-swap="innerHTML">
+          hx-swap="innerHTML"
+          aria-live="polite">
           <span class="muted">waiting for first batch…</span>
         </div>
       </div>
     </section>
-    <div id="llm-result" class="mb-6"></div>
+    <div id="llm-result" class="mb-6" aria-live="polite"></div>
 
     {% if proposals %}
       <section class="mb-6">
@@ -86,7 +89,7 @@
             </button>
           </div>
         </div>
-        <div id="accept-all-result"></div>
+        <div id="accept-all-result" aria-live="polite"></div>
         <p class="text-xs muted mb-3">
           The LLM proposed these categories below the auto-write threshold
           ({{ (auto_write_threshold * 100) | round | int }} %). Accept to apply with
@@ -97,12 +100,12 @@
           <table class="w-full text-sm border-collapse">
             <thead class="text-left bg-violet-100 text-violet-800">
               <tr>
-                <th class="py-2 px-3 font-medium">Merchant</th>
-                <th class="py-2 px-3 font-medium">Suggested</th>
-                <th class="py-2 px-3 font-medium num">Conf.</th>
-                <th class="py-2 px-3 font-medium num">Spend</th>
-                <th class="py-2 px-3 font-medium">Reasoning</th>
-                <th class="py-2 px-3 font-medium"></th>
+                <th scope="col" class="py-2 px-3 font-medium">Merchant</th>
+                <th scope="col" class="py-2 px-3 font-medium">Suggested</th>
+                <th scope="col" class="py-2 px-3 font-medium num">Conf.</th>
+                <th scope="col" class="py-2 px-3 font-medium num">Spend</th>
+                <th scope="col" class="py-2 px-3 font-medium">Reasoning</th>
+                <th scope="col" class="py-2 px-3 font-medium"></th>
               </tr>
             </thead>
             <tbody>
@@ -187,14 +190,14 @@
     <table class="w-full text-sm border-collapse">
       <thead class="text-left bg-neutral-100 text-neutral-600">
         <tr>
-          <th class="py-2 px-3 font-medium">Merchant</th>
-          <th class="py-2 px-3 font-medium">Category</th>
-          <th class="py-2 px-3 font-medium text-right">Tx</th>
-          <th class="py-2 px-3 font-medium text-right">Out</th>
-          <th class="py-2 px-3 font-medium text-right">In</th>
-          <th class="py-2 px-3 font-medium">First seen</th>
-          <th class="py-2 px-3 font-medium">Last seen</th>
-          <th class="py-2 px-3 font-medium text-right">Aliases</th>
+          <th scope="col" class="py-2 px-3 font-medium">Merchant</th>
+          <th scope="col" class="py-2 px-3 font-medium">Category</th>
+          <th scope="col" class="py-2 px-3 font-medium text-right">Tx</th>
+          <th scope="col" class="py-2 px-3 font-medium text-right">Out</th>
+          <th scope="col" class="py-2 px-3 font-medium text-right">In</th>
+          <th scope="col" class="py-2 px-3 font-medium">First seen</th>
+          <th scope="col" class="py-2 px-3 font-medium">Last seen</th>
+          <th scope="col" class="py-2 px-3 font-medium text-right">Aliases</th>
         </tr>
       </thead>
       <tbody>

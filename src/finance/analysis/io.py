@@ -64,7 +64,7 @@ def load_transactions(
     """
     query = """
         SELECT
-          t.transaction_id                              AS tx_id,
+          t.tx_uid                                      AS tx_id,
           t.account_uid                                 AS account_uid,
           s.aspsp_name                                  AS aspsp,
           t.booking_date                                AS booking_date,
@@ -85,9 +85,9 @@ def load_transactions(
         FROM transactions t
         JOIN accounts a  ON a.account_uid = t.account_uid
         JOIN sessions s  ON s.session_id  = a.session_id
-        LEFT JOIN tx_enrichment e ON e.tx_id = t.transaction_id
+        LEFT JOIN tx_enrichment e ON e.tx_id = t.tx_uid
         LEFT JOIN merchants m     ON m.merchant_id = e.merchant_id
-        LEFT JOIN tx_overrides o  ON o.tx_id = t.transaction_id
+        LEFT JOIN tx_overrides o  ON o.tx_id = t.tx_uid
         WHERE 1=1
     """
     params: list = []
@@ -106,7 +106,7 @@ def load_transactions(
         query += " AND (COALESCE(o.category, m.category) IS NULL"
         query += f" OR COALESCE(o.category, m.category) NOT IN ({ph}))"
         params.extend(sorted(NON_SPEND_CATEGORIES))
-    query += " ORDER BY t.booking_date DESC, t.transaction_id"
+    query += " ORDER BY t.booking_date DESC, t.tx_uid"
 
     df = pd.read_sql_query(query, conn, params=params)
 

@@ -8,7 +8,8 @@
   class="flex gap-1 items-center"
 >
   <select name="category" class="text-xs border rounded px-1 py-0.5 bg-white"
-          onchange="this.form.requestSubmit()">
+          data-auto-submit
+          data-confirm-empty="Clear this merchant category?">
     <option value=""{% if not category %} selected{% endif %}>— (clear)</option>
     {% for c in taxonomy %}
       <option value="{{ c }}"{% if category == c %} selected{% endif %}>{{ c }}</option>

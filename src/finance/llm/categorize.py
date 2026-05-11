@@ -28,6 +28,7 @@ from finance.llm.client import (
     LLMUsage,
     _utcnow,
     finish_run,
+    redact_prompt_text,
     start_run,
 )
 
@@ -79,7 +80,7 @@ def collect_uncategorized(
           COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0) AS spend
         FROM merchants m
         LEFT JOIN tx_enrichment e ON e.merchant_id = m.merchant_id
-        LEFT JOIN transactions t  ON t.transaction_id = e.tx_id
+        LEFT JOIN transactions t  ON t.tx_uid = e.tx_id
         WHERE (m.category IS NULL
                OR m.category_source = 'llm')
         GROUP BY m.merchant_id
@@ -95,7 +96,7 @@ def collect_uncategorized(
             """
             SELECT t.remittance_info
             FROM tx_enrichment e
-            JOIN transactions t ON t.transaction_id = e.tx_id
+            JOIN transactions t ON t.tx_uid = e.tx_id
             WHERE e.merchant_id = ?
             ORDER BY t.booking_date DESC
             LIMIT 3
@@ -138,7 +139,7 @@ def build_user_message(merchants: list[MerchantInput]) -> str:
         lines.append(f"{i}. {m.canonical_name}")
         if m.example_memos:
             for memo in m.example_memos:
-                lines.append(f"   - {memo[:140]}")
+                lines.append(f"   - {redact_prompt_text(memo)[:140]}")
         else:
             lines.append("   (no example memos)")
     return "\n".join(lines)

@@ -26,9 +26,16 @@ To enable automatic activation in zsh, add this once to your shell config and
 trust the repo:
 
 ```bash
-eval "$(devenv hook zsh)"
+if command -v devenv >/dev/null 2>&1; then
+  eval "$(devenv hook zsh)"
+fi
 devenv allow
 ```
+
+That replaces the old direnv-based auto-activation pattern. If your
+`~/.zshrc` still contains `eval "$(direnv hook zsh)"`, either remove it or
+guard it with `command -v direnv` so shells without direnv do not fail during
+devenv startup.
 
 ## Commands
 
@@ -56,8 +63,9 @@ quality gate as Python and shell code.
 
 ## Local State And Secrets
 
-The committed environment keeps the shell mostly clean but preserves the env
-vars this app legitimately needs:
+The committed environment keeps the shell mostly clean but preserves `PATH`
+for devenv's pre-activation bootstrap, plus the env vars this app legitimately
+needs:
 
 - `FINANCE_CONFIG_DIR`, `FINANCE_DATA_DIR`, `FINANCE_KEY_PASSPHRASE`
 - `ANTHROPIC_API_KEY`

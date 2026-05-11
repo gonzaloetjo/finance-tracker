@@ -7,7 +7,7 @@
     <form method="get" action="/forecast" class="text-sm">
       <label class="flex items-center gap-1">
         <span>horizon</span>
-        <select name="days" onchange="this.form.submit()"
+        <select name="days" data-auto-submit
                 class="border rounded px-1 py-0.5 bg-white">
           {% for d in [7, 14, 30, 60, 90] %}
             <option value="{{ d }}"{% if days == d %} selected{% endif %}>{{ d }} days</option>

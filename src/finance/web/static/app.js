@@ -75,8 +75,11 @@
         const html = await response.text();
         swapInto(target, html, swap);
       }
-      const hook = trigger.getAttribute("hx-on::after-request") || "";
-      if (response.ok && hook.includes("this.reset") && trigger instanceof HTMLFormElement) {
+      if (
+        response.ok &&
+        trigger.dataset.resetOnSuccess === "true" &&
+        trigger instanceof HTMLFormElement
+      ) {
         trigger.reset();
       }
     } catch (error) {
@@ -105,7 +108,10 @@
         credentials: "same-origin",
       });
       const html = await response.text();
-      if (response.ok) swapInto(target, html, swap);
+      if (response.ok) {
+        swapInto(target, html, swap);
+        if (html.includes("<strong>Done.</strong>")) trigger.dataset.pollComplete = "true";
+      }
     } catch {
       // Polling widgets are advisory. Keep the last visible state on failure.
     }
@@ -128,7 +134,35 @@
       const trigger = element.getAttribute("hx-trigger") || "";
       if (trigger.includes("load")) runHxGet(element);
       const match = trigger.match(/every\s+(\d+)s/);
-      if (match) window.setInterval(() => runHxGet(element), Number(match[1]) * 1000);
+      if (match) {
+        const timer = window.setInterval(() => {
+          if (!element.isConnected || element.dataset.pollComplete === "true") {
+            window.clearInterval(timer);
+            return;
+          }
+          runHxGet(element);
+        }, Number(match[1]) * 1000);
+        element.dataset.financePollTimer = String(timer);
+      }
+    }
+  }
+
+  function bindAutoSubmit(root) {
+    for (const control of root.querySelectorAll("[data-auto-submit]")) {
+      if (control.dataset.financeAutoSubmitBound === "1") continue;
+      control.dataset.financeAutoSubmitBound = "1";
+      control.addEventListener("change", () => {
+        if (!(control.form instanceof HTMLFormElement)) return;
+        const confirmEmpty = control.getAttribute("data-confirm-empty");
+        if (confirmEmpty && "value" in control && !control.value && !window.confirm(confirmEmpty)) {
+          return;
+        }
+        if (typeof control.form.requestSubmit === "function") {
+          control.form.requestSubmit();
+        } else {
+          control.form.submit();
+        }
+      });
     }
   }
 
@@ -200,6 +234,7 @@
 
   function bindDynamic(root) {
     bindHx(root);
+    bindAutoSubmit(root);
     bindReloads(root);
   }
 

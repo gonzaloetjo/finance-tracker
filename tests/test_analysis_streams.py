@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from finance.analysis.streams import _band_bucket, _make_stream_id, group_streams
+from finance.analysis.streams import (
+    _band_bucket,
+    _make_stream_id,
+    group_streams,
+    report_orphan_overrides,
+)
 from finance.db.store import connect, init_schema
 
 
@@ -237,3 +242,59 @@ def test_uncategorized_prlv_still_flagged_as_subscription(tmp_path):
 
         assert len(streams) == 1
         assert streams[0].is_subscription is True
+
+
+def test_opposite_sign_same_amounts_do_not_merge(tmp_path):
+    with connect(tmp_path / "x.db") as conn:
+        init_schema(conn)
+        today = date.today()
+        dates = [(today - timedelta(days=30 * i)).isoformat() for i in range(3)]
+        txs = [(-25.0, dates[0]), (25.0, dates[1]), (-25.0, dates[2]), (25.0, dates[2])]
+        _seed_enriched(conn, "REFUND SHOP", "FACTURE", txs)
+
+        streams = group_streams(conn)
+        conn.commit()
+
+        assert len(streams) == 2
+        assert {s.amount_sign for s in streams} == {-1, 1}
+
+
+def test_stream_override_report_flags_splits_before_recompute(tmp_path):
+    with connect(tmp_path / "x.db") as conn:
+        init_schema(conn)
+        _seed_enriched(
+            conn,
+            "SPLIT ME",
+            "FACTURE",
+            [(-10.0, "2026-01-01"), (10.0, "2026-02-01")],
+        )
+        conn.execute(
+            """
+            INSERT INTO streams (
+              stream_id, merchant_id, txn_type, median_amount, amount_tolerance,
+              median_days, regularity, classification, is_recurring, is_subscription,
+              subscription_override, active, first_seen, last_seen, count, updated_at
+            )
+            SELECT 'old-stream', merchant_id, 'FACTURE', 10.0, 0.15, 30, 1.0,
+                   'monthly', 1, 0, 0, 1, '2026-01-01', '2026-02-01', 2, '2026-02-01'
+            FROM merchants WHERE canonical_name = 'SPLIT ME'
+            """
+        )
+        conn.execute(
+            """
+            UPDATE tx_enrichment
+               SET stream_id = 'old-stream'
+             WHERE merchant_id = (
+               SELECT merchant_id FROM merchants WHERE canonical_name = 'SPLIT ME'
+             )
+            """
+        )
+        conn.commit()
+
+        report = report_orphan_overrides(conn)
+
+        assert report.has_issues
+        assert len(report.split) == 1
+        assert report.split[0].old_stream_id == "old-stream"
+        assert report.split[0].subscription_override == 0
+        assert len(report.split[0].new_stream_ids) == 2

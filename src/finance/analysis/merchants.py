@@ -216,7 +216,7 @@ def top_merchants(
           m.canonical_name                           AS merchant,
           m.category                                 AS category,
           m.category_source                          AS category_source,
-          COUNT(t.transaction_id)                    AS txns,
+          COUNT(t.tx_uid)                            AS txns,
           COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END), 0) AS total_spend,
           COALESCE(SUM(CASE WHEN t.amount > 0 THEN  t.amount ELSE 0 END), 0) AS total_income,
           COALESCE(SUM(t.amount), 0)                 AS net_amount,
@@ -226,7 +226,7 @@ def top_merchants(
              WHERE ma.merchant_id = m.merchant_id)   AS aliases_count
         FROM merchants m
         LEFT JOIN tx_enrichment e ON e.merchant_id = m.merchant_id
-        LEFT JOIN transactions t  ON t.transaction_id = e.tx_id
+        LEFT JOIN transactions t  ON t.tx_uid = e.tx_id
         LEFT JOIN accounts a      ON a.account_uid = t.account_uid
         WHERE (t.currency = 'EUR' OR t.currency IS NULL)
     """
@@ -300,14 +300,14 @@ def deep_dive(conn: sqlite3.Connection, canonical_or_alias: str):
     txns = pd.read_sql_query(
         """
         SELECT
-          t.transaction_id   AS tx_id,
+          t.tx_uid           AS tx_id,
           t.booking_date     AS booking_date,
           t.amount           AS amount,
           t.currency         AS currency,
           t.remittance_info  AS memo_raw,
           e.stream_id        AS stream_id
         FROM transactions t
-        JOIN tx_enrichment e ON e.tx_id = t.transaction_id
+        JOIN tx_enrichment e ON e.tx_id = t.tx_uid
         WHERE e.merchant_id = ?
         ORDER BY t.booking_date DESC
         """,
@@ -449,6 +449,9 @@ def apply_curated_merges(
 
 def set_category(conn: sqlite3.Connection, canonical_or_alias: str, category: str) -> bool:
     """Set a merchant-level category with source='user' (never overwritten by re-enrich)."""
+    from finance.taxonomy import validate_category
+
+    category = validate_category(category, source="merchant")
     mid = resolve_merchant_id(conn, canonical_or_alias)
     if mid is None:
         return False

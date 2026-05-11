@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from finance.categorize import Rule
 from finance.db import store
-from finance.eb.client import EnableBankingClient
+from finance.eb.client import EnableBankingClient, explain_eb_error
 from finance.eb.flows import finalize_session, list_aspsps, start_auth
 from finance.sync import sync_all_accounts
 from finance.web.privacy import mask_iban
@@ -42,20 +42,7 @@ def _templates_dir() -> str:
 
 
 def _explain_eb_error(e: httpx.HTTPStatusError) -> str:
-    status = e.response.status_code
-    body = e.response.text
-    if status == 403 and "not active" in body.lower():
-        return (
-            "Enable Banking says your application is not active yet. "
-            "Go to https://enablebanking.com/ → Control Panel → your application "
-            "and complete the activation / self-whitelisting step (they'll ask for your IBAN)."
-        )
-    if status == 401:
-        return (
-            "Enable Banking rejected the request as unauthorized. "
-            "Check that the app_id in config.toml matches the key you imported."
-        )
-    return f"Enable Banking returned HTTP {status}: {body}"
+    return explain_eb_error(e)
 
 
 def _unsafe_method(method: str) -> bool:
@@ -109,9 +96,7 @@ async def _csrf_token_from_request(request: Request) -> str | None:
 
 
 def _strip_token_from_url(request: Request) -> str:
-    params = [
-        (key, value) for key, value in request.query_params.multi_items() if key != "token"
-    ]
+    params = [(key, value) for key, value in request.query_params.multi_items() if key != "token"]
     query = urlencode(params, doseq=True)
     return request.url.path + (f"?{query}" if query else "")
 

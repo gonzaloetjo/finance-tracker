@@ -45,3 +45,11 @@ def assert_subset_of_taxonomy(
             f"{source} references categories absent from taxonomy.yaml: "
             f"{sorted(extras)}. Rename in taxonomy.yaml or remove from {source}."
         )
+
+
+def validate_category(category: str, *, source: str = "category") -> str:
+    """Return category if it is in the canonical taxonomy, else raise ValueError."""
+    value = str(category).strip()
+    if value not in load_taxonomy_set():
+        raise ValueError(f"{source} category is not in taxonomy.yaml: {value!r}")
+    return value

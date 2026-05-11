@@ -1,6 +1,15 @@
-<div class="text-sm bg-white border rounded px-3 py-2">
+{% set failed = results|selectattr('status', 'ne', 'ok')|list %}
+<div class="text-sm bg-white border rounded px-3 py-2
+  {% if failed|length == 0 %}border-emerald-200
+  {% elif failed|length == results|length %}border-red-200
+  {% else %}border-amber-200{% endif %}">
   {% set total = results|sum(attribute='added') %}
-  <strong>+{{ total }}</strong> new transaction(s)
+  <strong>
+    {% if failed|length == 0 %}Sync complete
+    {% elif failed|length == results|length %}Sync failed
+    {% else %}Sync partially completed{% endif %}
+  </strong>
+  <span class="muted">· +{{ total }} new transaction(s)</span>
   {% for r in results %}
     <div class="text-xs text-neutral-500 mt-1">
       {{ r.account_uid[:8] }}…

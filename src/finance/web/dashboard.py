@@ -87,6 +87,15 @@ async def overview_page(request: Request, spend_only: bool = True, months: int =
         )
         mtd = store.month_to_date_totals(conn, spend_only=spend_only)
         monthly = store.monthly_series(conn, months=6, spend_only=spend_only)
+        last_sync = conn.execute(
+            """
+            SELECT status, started_at, ended_at, error, transactions_added, transactions_fetched
+            FROM sync_runs
+            ORDER BY started_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        total_tx = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
     return _templates(request).TemplateResponse(
         request,
         "overview.html",
@@ -96,6 +105,8 @@ async def overview_page(request: Request, spend_only: bool = True, months: int =
             "months": months,
             "mtd": mtd,
             "monthly": monthly,
+            "last_sync": dict(last_sync) if last_sync else None,
+            "sync_needed": bool(data.accounts and total_tx == 0),
             "top_merchants_rows": _df_to_rows(data.top_merchants),
             "trends_rows": _df_to_rows(data.trends),
             "recurring_rows": _df_to_rows(data.recurring),
@@ -149,7 +160,7 @@ async def merchants_page(
                 FROM llm_proposals p
                 JOIN merchants m ON m.merchant_id = p.merchant_id
                 LEFT JOIN tx_enrichment e ON e.merchant_id = p.merchant_id
-                LEFT JOIN transactions t ON t.transaction_id = e.tx_id
+                LEFT JOIN transactions t ON t.tx_uid = e.tx_id
                 WHERE m.category IS NULL
                 GROUP BY p.merchant_id
                 ORDER BY p.confidence DESC, total_spend DESC
@@ -167,7 +178,7 @@ async def merchants_page(
                 f"""
                 SELECT e.merchant_id, t.remittance_info, t.booking_date
                 FROM tx_enrichment e
-                JOIN transactions t ON t.transaction_id = e.tx_id
+                JOIN transactions t ON t.tx_uid = e.tx_id
                 WHERE e.merchant_id IN ({ph})
                 ORDER BY e.merchant_id, t.booking_date DESC
                 """,
@@ -371,15 +382,14 @@ async def merchants_accept_all_proposals(request: Request):
         conn.commit()
 
     return HTMLResponse(
-        f'<div class="border border-emerald-200 bg-emerald-50 rounded px-4 py-3">'
+        f'<div class="border border-emerald-200 bg-emerald-50 rounded px-4 py-3" '
+        f'data-auto-reload="2">'
         f'<div class="flex items-baseline justify-between">'
         f'<div><span class="font-semibold text-emerald-900">✓ Applied {applied} proposal(s)</span></div>'
-        f'<button type="button" onclick="window.location.reload()"'
+        f'<button type="button" data-reload-button'
         f' class="text-xs bg-emerald-900 text-white px-3 py-1 rounded hover:bg-emerald-700">'
         f"Refresh page</button></div>"
-        f'<div class="text-xs muted mt-1">Auto-refreshing in <span id="accept-all-countdown">2</span>s.</div>'
-        f'<script>(function(){{let n=2;const el=document.getElementById("accept-all-countdown");'
-        f"const t=setInterval(()=>{{n-=1;if(el)el.textContent=n;if(n<=0){{clearInterval(t);window.location.reload();}}}},1000);}})();</script>"
+        f'<div class="text-xs muted mt-1">Auto-refreshing in <span data-countdown>2</span>s.</div>'
         f"</div>"
     )
 
@@ -739,7 +749,11 @@ async def rules_reenrich(request: Request):
                 "</div>"
             )
         try:
-            summary = enrich_transactions(conn, reenrich=True, rules=rules)
+            with conn:
+                summary = enrich_transactions(conn, reenrich=True, rules=rules)
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             store.release_job_lock(conn, lock)
     return _templates(request).TemplateResponse(
