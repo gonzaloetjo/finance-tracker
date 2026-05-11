@@ -908,7 +908,7 @@ dev = [
     { name = "jupyterlab", specifier = ">=4.5.7" },
     { name = "mistune", specifier = ">=3.2.1" },
     { name = "mypy", specifier = ">=1.11" },
-    { name = "pip", specifier = ">=26.1" },
+    { name = "pip", specifier = ">=26.1.1" },
     { name = "pip-audit", specifier = ">=2.7" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.23" },

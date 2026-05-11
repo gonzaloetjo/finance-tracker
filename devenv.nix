@@ -43,7 +43,7 @@
       description = "Run pytest through the locked uv environment.";
     };
     finance-audit = {
-      exec = ''uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219 "$@"'';
+      exec = ''uv run pip-audit --skip-editable "$@"'';
       description = "Run the dependency vulnerability audit.";
     };
     finance-serve = {
@@ -70,7 +70,7 @@
       before = [ "devenv:enterTest" ];
     };
     "checks:pip-audit" = {
-      exec = "uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219";
+      exec = "uv run pip-audit --skip-editable";
       before = [ "devenv:enterTest" ];
     };
     "checks:shell" = {

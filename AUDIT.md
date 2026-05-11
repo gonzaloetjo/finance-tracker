@@ -1404,3 +1404,47 @@ local commands, not container deployment.
   (`uv_build>=0.9.26,<0.10.0`) does not include the Nix-provided uv
   `0.11.8`; the build succeeds. Widening that bound is a separate packaging
   decision.
+
+---
+
+## Tier W — package audit cleanup
+
+This follow-up resolves the two package loose ends left by Tier V.
+
+### Findings addressed
+
+1. **The `uv_build` upper bound was stale.** The project required
+   `uv_build>=0.9.26,<0.10.0`, while the committed devenv shell provides
+   uv `0.11.8`. Official uv docs recommend an upper bound on the
+   `uv_build` minor line; the repo now uses `uv_build>=0.11.8,<0.12.0`,
+   matching the checked-in devenv uv while still blocking unreviewed
+   `0.12.x` build-backend changes.
+2. **The `CVE-2026-3219` ignore was no longer sensible.** It was reasonable
+   when Tier Q landed because the advisory data then reported no fixed
+   version for the pip issue and the repo needed CI to stay blocking for all
+   other vulnerabilities. The current lock already has pip `26.1.1`, and a
+   fresh `pip-audit --skip-editable` run is clean without any ignore.
+3. **The dev dependency floor did not make the clean pip intent explicit.**
+   `pip>=26.1` was already outside the affected `<=26.0.1` range, but the
+   lock contains `26.1.1`; the floor now says `pip>=26.1.1`.
+
+### Changes
+
+- Changed `[build-system]` to `uv_build>=0.11.8,<0.12.0`.
+- Changed the dev dependency floor to `pip>=26.1.1`.
+- Refreshed `uv.lock`; only the pip specifier changed.
+- Removed `--ignore-vuln CVE-2026-3219` from CI and devenv pip-audit tasks.
+
+### Verification
+
+- `UV_CACHE_DIR=/tmp/uv-cache uv run pip-audit --skip-editable` — no known
+  vulnerabilities found.
+- `devenv shell python --version` — no `uv_build` compatibility warning;
+  reports `Python 3.11.15`.
+- `devenv test` — full task graph passed, including pip-audit without an
+  ignore and the dashboard process test.
+
+### Still intentionally deferred
+
+- Historical Tier Q/U evidence remains unchanged; those sections describe
+  what was true when those tiers landed.

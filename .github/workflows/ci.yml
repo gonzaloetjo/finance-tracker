@@ -27,4 +27,4 @@ jobs:
       - name: vulture
         run: uv run vulture src/finance --min-confidence 80
       - name: pip-audit
-        run: uv run pip-audit --skip-editable --ignore-vuln CVE-2026-3219
+        run: uv run pip-audit --skip-editable
