@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+require_version: ">=2.1"
+
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
+  git-hooks:
+    url: github:cachix/git-hooks.nix
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+
+clean:
+  enabled: true
+  keep:
+    - HOME
+    - USER
+    - LOGNAME
+    - SHELL
+    - TERM
+    - COLORTERM
+    - LANG
+    - LC_ALL
+    - TZ
+    - TMPDIR
+    - ANTHROPIC_API_KEY
+    - FINANCE_CONFIG_DIR
+    - FINANCE_DATA_DIR
+    - FINANCE_KEY_PASSPHRASE
+    - DBUS_SESSION_BUS_ADDRESS
+    - DISPLAY
+    - WAYLAND_DISPLAY
+    - XAUTHORITY
+    - XDG_RUNTIME_DIR
+    - SSH_AUTH_SOCK
+    - GITHUB_TOKEN
+    - CI

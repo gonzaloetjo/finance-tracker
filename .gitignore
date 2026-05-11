@@ -8,6 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+.devenv/
+.pre-commit-config.yaml
+devenv.local.nix
+devenv.local.yaml
 
 # Env / secrets
 .env

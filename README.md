@@ -31,6 +31,20 @@ uv run finance analyze enrich            # build merchants + categories from the
 uv run finance list --since 2026-01-01
 ```
 
+## Development environment
+
+The default developer workflow is still `uv`, with `uv.lock` as the Python
+dependency source of truth. For a pinned system-tool shell, install
+[`devenv`](https://devenv.sh/) `2.1` or newer and run:
+
+```bash
+devenv shell
+devenv test
+```
+
+No `.envrc` is required; devenv 2.1 has native shell activation through
+`devenv hook`. See [docs/development-environment.md](docs/development-environment.md).
+
 ## Paths
 
 - Config: `~/.config/finance/config.toml`

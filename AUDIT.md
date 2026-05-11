@@ -1336,3 +1336,71 @@ a multi-user or cloud service.
 - `cli.py` and `web/dashboard.py` remain large coordination modules.
 - The analytics core still needs plugin/runtime registration and a
   non-finance dashboard path.
+
+---
+
+## Tier V — reproducible developer shell
+
+This pass answers the Docker / Nix flake / devenv question from the audit
+roadmap. The repo is still primarily a local, stateful SQLite + dashboard
+tool, so the default developer environment should optimize for repeatable
+local commands, not container deployment.
+
+### Findings addressed
+
+1. **The repo had a locked Python graph but no pinned system-tool shell.**
+   `uv.lock` controlled Python packages, while shell tools (`git`, `jq`,
+   `sqlite`, `shellcheck`, `openssl`, `uv`) depended on the host.
+2. **Docker is not the best default for this workflow.** The app reads local
+   config/data dirs, uses OS keyring/browser OAuth flows, and serves a local
+   dashboard. A container can still be added for deployment later, but it
+   should not be the first developer entry point.
+3. **A raw flake would expose lower-level Nix plumbing without adding much.**
+   Devenv 2.1 gives the useful pieces directly: pinned inputs, shell
+   activation, tasks, processes, git-hooks, clean env handling, and generated
+   local files.
+4. **Devenv 2.1 does not need `direnv`.** No `.envrc` was added; optional
+   activation is through `devenv hook`.
+5. **`languages.python.version` pulled `nixpkgs-python` and tried to compile
+   Python from source in this environment.** The final config uses
+   `pkgs.python311` from the locked nixpkgs input instead; validation showed
+   Python coming from the binary cache.
+
+### Changes
+
+- Added `devenv.yaml`, `devenv.nix`, and `devenv.lock`.
+- Added a devenv 2.1 shell that keeps `uv.lock` as the Python dependency
+  source of truth and runs `uv sync --frozen --all-groups`.
+- Added devenv scripts for `finance-test`, `finance-audit`,
+  `finance-serve`, and `finance-check`.
+- Added a `devenv test` task graph for ruff, mypy, vulture, pytest,
+  pip-audit, and shell syntax/shellcheck.
+- Added local `git-hooks` generation without committing the generated
+  `.pre-commit-config.yaml`.
+- Ignored `.devenv/`, local devenv overrides, and generated hook config.
+- Documented the environment in `README.md` and
+  `docs/development-environment.md`.
+
+### Verification
+
+- `devenv --version` — `devenv 2.1.1+23120f1 (x86_64-linux)`.
+- `devenv info` — lock validates and Nix evaluates with inputs
+  `nixpkgs` + `git-hooks`.
+- `devenv shell python --version` — syncs 174 locked Python packages and
+  reports `Python 3.11.15`.
+- `devenv tasks list` — `checks:{ruff,mypy,vulture,pytest,pip-audit,shell}`
+  are wired under `devenv:enterTest`.
+- `devenv test` — full task graph passed, including dashboard process test.
+- `devenv tasks run checks` — check namespace passed.
+
+### Still intentionally deferred
+
+- Docker remains a deployment/runtime packaging option, not the default local
+  developer workflow.
+- CI still runs through explicit `uv` commands; switching CI to `devenv test`
+  is possible, but should be a separate change because it alters runner Nix
+  setup.
+- `uv` emits a warning that the project build backend bound
+  (`uv_build>=0.9.26,<0.10.0`) does not include the Nix-provided uv
+  `0.11.8`; the build succeeds. Widening that bound is a separate packaging
+  decision.
