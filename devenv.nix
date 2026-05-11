@@ -11,6 +11,7 @@
     pkgs.openssl
     pkgs.shellcheck
     pkgs.sqlite
+    pkgs.statix
   ];
 
   env = {
@@ -75,6 +76,10 @@
     };
     "checks:shell" = {
       exec = "bash -n scripts/finance-all.sh && shellcheck scripts/finance-all.sh";
+      before = [ "devenv:enterTest" ];
+    };
+    "checks:nix" = {
+      exec = "statix check devenv.nix";
       before = [ "devenv:enterTest" ];
     };
   };

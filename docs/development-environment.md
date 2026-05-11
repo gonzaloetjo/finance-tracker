@@ -36,6 +36,7 @@ devenv allow
 devenv test                 # full local check suite
 devenv tasks run checks     # run the check task namespace
 devenv tasks list           # inspect the task graph
+statix check devenv.nix     # Nix config lint, also part of devenv test
 finance-test -q             # pytest wrapper
 finance-audit               # pip-audit wrapper
 finance-serve --port 8001   # dashboard wrapper
@@ -49,7 +50,9 @@ virtualenv to `.devenv/state/venv`; `devenv test` uses an isolated
 `.devenv/test-state/venv`.
 
 The first shell entry downloads the pinned Nix store paths and the locked
-Python wheels. Later entries reuse those caches.
+Python wheels. Later entries reuse those caches. The check graph includes
+`statix check devenv.nix` so the committed Nix config gets the same local
+quality gate as Python and shell code.
 
 ## Local State And Secrets
 

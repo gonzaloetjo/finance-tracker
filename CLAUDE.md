@@ -38,7 +38,7 @@ uv run finance serve                     # dashboard at http://localhost:8000
 Full CLI surface is documented in `README.md`.
 
 Alternative entry point: `devenv shell` (devenv 2.1+) pins Python 3.11 and
-system tools (`git`, `jq`, `sqlite`, `shellcheck`, `openssl`, `uv`) and
+system tools (`git`, `jq`, `sqlite`, `shellcheck`, `statix`, `openssl`, `uv`) and
 exposes the full check suite as `devenv test`. `uv.lock` stays the Python
 source of truth; devenv only wraps it. See `docs/development-environment.md`
 and AUDIT Tier V. Don't propose Docker as the default dev runtime — the

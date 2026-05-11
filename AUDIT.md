@@ -1448,3 +1448,42 @@ This follow-up resolves the two package loose ends left by Tier V.
 
 - Historical Tier Q/U evidence remains unchanged; those sections describe
   what was true when those tiers landed.
+
+---
+
+## Tier X — Nix tooling triage
+
+This pass reviewed the tools listed in Asaduzzaman Pavel's April 2026
+"The NixOS Tools That Actually Make a Difference" article against this repo's
+current shape.
+
+### Finding
+
+Most listed tools are not repo-level wins right now:
+
+- `comma`, `nix-index`, `nh`, `nix-direnv`, `hjem`, and NixOS Options Search
+  are personal-machine or OS/home-manager conveniences. They do not belong in
+  a Python finance app's committed dev environment.
+- `nurl` and `nix-init` become useful if this project starts packaging
+  upstream sources or publishing a Nix package. The current devenv deliberately
+  keeps Python packaging in `uv.lock`, so they would add process without
+  removing current work.
+- `flake-parts` is useful once a flake has several outputs, packages, systems,
+  or CI checks. This repo currently has a focused devenv config, so adopting it
+  would be premature.
+- `statix` is the one clear fit: the repo now has committed Nix code, and
+  `statix check devenv.nix` passed with no findings.
+
+### Change
+
+- Added `pkgs.statix` to the devenv shell.
+- Added `checks:nix` to the `devenv test` task graph.
+- Documented the Nix lint check in `docs/development-environment.md` and
+  `CLAUDE.md`.
+
+### Verification
+
+- `nix run nixpkgs#statix -- check devenv.nix` — no findings.
+- `devenv test` — full task graph passed; `checks:nix` ran
+  `statix check devenv.nix` alongside ruff, mypy, vulture, pytest,
+  pip-audit, and shellcheck.
